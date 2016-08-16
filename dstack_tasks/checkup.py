@@ -7,6 +7,7 @@ from typing import Callable
 
 from fabric.api import env
 from fabric.colors import red, green, yellow, white
+from fabric.decorators import task
 
 from dstack_tasks.utils import get_result
 
@@ -199,6 +200,7 @@ def check_postgres():
             print(red("Hostname not set!"))
 
 
+@task
 def doctor() -> None:
     """ Checks the health of your project
 

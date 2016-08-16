@@ -1,5 +1,5 @@
 import os
-from typing import Callable
+from typing import Callable, Iterable, Mapping
 
 from fabric.context_managers import hide, settings
 from fabric.operations import local, prompt
@@ -115,3 +115,18 @@ def vc(release_tag: str = None, release_type: str = None) -> str:
         tag = 'v{major}.{minor}.{patch}{a}'.format(**locals())
 
         return tag
+
+
+def check_keys(collection: Mapping, keys: Iterable) -> bool:
+    """
+    Function to check whether keys are present in a dictionary and raise
+    if they're.
+
+    :return:
+    """
+
+    for var in keys:
+        if not collection.get(var, False):
+            raise Exception('Improperly configured! Key: "' + var + '" not set.')
+
+    return True

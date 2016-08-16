@@ -8,6 +8,8 @@ from fabric.decorators import task
 from fabric.operations import run, local, get, put, prompt
 from fabric.state import env
 
+from dstack_tasks.utils import check_keys
+
 
 @task
 def dotenv(action: str = None, key: str = None, value: str = None, live: bool = False) -> None:
@@ -37,7 +39,7 @@ def dotenv(action: str = None, key: str = None, value: str = None, live: bool = 
 
 
 @task
-def execute(cmd: str = '--help', path: str = '', live: bool = False):
+def execute(cmd: str = '--help', path: str = None, live: bool = False):
     """
 
     :param cmd:
@@ -45,14 +47,15 @@ def execute(cmd: str = '--help', path: str = '', live: bool = False):
     :param live:
     :return:
     """
-    if not path:
-        path = env.project_dir if live else '.'
+    if path is None:
+        path = env.project_dir if live else ''
+    print(path)
     with cd(path):
         run(cmd) if live else local(cmd)
 
 
 @task
-def compose(cmd: str = '--help', path: str = '', live: bool = False) -> None:
+def compose(cmd: str = '--help', path: str = None, live: bool = False) -> None:
     """
 
     :param cmd:
@@ -60,14 +63,18 @@ def compose(cmd: str = '--help', path: str = '', live: bool = False) -> None:
     :param live:
     :return:
     """
-    env_vars = 'IMAGE_NAME={image_name} '.format(image_name=env.image_name)
+    check_keys(env, ['image_name', 'image_tag'])
+
+    base_cmd = '{env_vars}docker-compose {cmd}'
     template = {
-        'posix': '%sdocker-compose {cmd}' % (env_vars if live else ''),
-        'nt': '%sdocker-compose {cmd}' % (env_vars if live else 'set PWD=%cd%&& '),
+        'posix': 'export UID; IMAGE={image_name}:{image_tag} ',
+        'nt': 'set PWD=%cd%&& IMAGE={image_name}:{image_tag} ',
     }
 
+    cmd_string = base_cmd.format(env_vars=template[os.name].format(**env), cmd=cmd)
+
     try:
-        execute(cmd=template[env.os].format(cmd=cmd), path=path, live=live)
+        execute(cmd=cmd_string, path=path, live=live)
     except SystemExit:
         pass
 
@@ -80,7 +87,7 @@ def docker(cmd: str = '--help', live: bool = False) -> None:
     :param live:
     :return:
     """
-    execute(cmd='docker {cmd}'.format(cmd=cmd), live=live)
+    execute(cmd='docker {cmd}'.format(cmd=cmd), path=env.get('project_dir', ''), live=live)
 
 
 @task
@@ -99,6 +106,7 @@ def manage(cmd: str = 'help', live: bool = False) -> None:
             local('python src/manage.py {cmd}'.format(cmd=cmd))
 
 
+@task
 def pip(cmd: str = '--help') -> None:
     """
 
@@ -160,7 +168,7 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
         backup_to_path = posixpath.join(env.project_dir, 'var/backups')
     else:
         backup_to_path = os.path.join(env.project_path, 'var/backups')
-        if env.os == 'nt':
+        if os.name == 'nt':
             backup_to_path = posixpath.join('/c/', Path(backup_to_path).as_posix()[3:])
 
     params = {
@@ -230,4 +238,4 @@ def git(cmd: str = '--help', live: bool = False):
     :param live:
     :return:
     """
-    execute('git {cmd)'.format(cmd=cmd), live=live)
+    execute('git {cmd}'.format(cmd=cmd), live=live)

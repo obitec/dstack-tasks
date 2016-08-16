@@ -21,17 +21,17 @@ def make_wheels() -> None:
     with cd(build_dir('wheelhouse')):
         run('rm -rf *.whl')
 
-    compose(cmd='-f service.yml -p %s run --rm wheel-factory' % env.project_name, path=build_dir(), live=True)
+    compose(cmd='-f service.yml -p %s run --rm wheel-factory' % env.project_name, path=build_dir(''), live=True)
 
 
 @task
-def make_default_webapp() -> None:
+def make_default_webapp(tag: str = 'latest') -> None:
     put('./requirements.txt', '/srv/build/requirements.txt')
 
+    # TODO: make path configurable and locally executable
     with cd('/srv/build'):
-        run('docker build -t {image_name} .'.format(
-            image_name=env.image_name,
-        ))
+        run('docker build -t {image_name}:{image_tag} .'.format(
+            image_name=env.image_name, image_tag=tag))
 
 
 @task

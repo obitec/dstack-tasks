@@ -2,7 +2,6 @@ import logging
 import os
 import posixpath
 
-import yaml
 from fabric.api import env, local, run, settings, put, prompt, task
 from fabric.colors import red, green
 from fabric.contrib.project import rsync_project
@@ -29,7 +28,7 @@ def local_setup(collection: str = '') -> None:
     if python-dotenv is installed
     """
     # Local paths
-    env.project_path = os.path.dirname(os.path.dirname(__file__))
+    # env.project_path = os.path.dirname(os.path.dirname(__file__))
     env.local_dotenv_path = os.path.join(env.project_path, '.env')
 
     # Node config
@@ -46,10 +45,12 @@ def local_setup(collection: str = '') -> None:
                 print('Python-dotenv must be installed to load .env files:')
                 print('pip install -U python-dotenv')
 
+    # Read collection .env overrides
+    if collection:
+        load_dotenv(os.path.join(env.project_path, collection + '.env'))
+
     # Read local .env
     load_dotenv(env.local_dotenv_path)
-    # Read collection .env overrides
-    load_dotenv(os.path.join(env.project_path, collection, '.env'))
 
 
 def remote_setup(project_name: str) -> None:
@@ -107,12 +108,17 @@ def e(collection: str = '') -> None:
             print(exc)
 
     local_setup(collection=collection)
+    # print(os.environ.get('PROJECT_NAME'))
 
     env.project_name = os.environ.get('PROJECT_NAME', env.project_name)
     env.virtual_env = os.environ.get('VIRTUAL_ENV', env.virtual_env)
     env.image_name = os.environ.get('IMAGE_NAME', env.image_name)
 
-    activate_venv(style='conda', venv=env.virtual_env)
+    env.image_tag = collection if collection else 'latest'
+
+    print(env.image_name, env.image_tag)
+
+    activate_venv(env=env, style='conda', venv=env.virtual_env)
     remote_setup(env.project_name)
 
     # Server environment
@@ -289,5 +295,3 @@ def clean_unused_volumes():
         '-v /var/run/docker.sock:/var/run/docker.sock '
         '-v /var/lib/docker:/var/lib/docker '
         'martin/docker-cleanup-volumes')
-
-
