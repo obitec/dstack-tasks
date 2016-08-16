@@ -68,7 +68,7 @@ def compose(cmd: str = '--help', path: str = None, live: bool = False) -> None:
     base_cmd = '{env_vars}docker-compose {cmd}'
     template = {
         'posix': 'export UID; IMAGE={image_name}:{image_tag} ',
-        'nt': 'set PWD=%cd%&& IMAGE={image_name}:{image_tag} ',
+        'nt': 'set PWD=%cd%&& set IMAGE={image_name}:{image_tag} && ',
     }
 
     cmd_string = base_cmd.format(env_vars=template[os.name].format(**env), cmd=cmd)
