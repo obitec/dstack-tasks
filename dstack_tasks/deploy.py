@@ -4,7 +4,7 @@ from fabric.decorators import task
 from fabric.operations import put, run, prompt, local
 from fabric.state import env
 
-from dstack_tasks import dirify, compose, docker, postgres, manage, execute, vc
+from dstack_tasks import dirify, compose, docker, postgres, manage, execute, vc, git
 
 
 @task
@@ -178,3 +178,99 @@ def build_code(live: bool = False, migrate: bool = False) -> None:
         manage('migrate', live=live)
 
     compose('up -d webapp', live=live)
+
+
+@task
+def release_runtime(tag: str = 'latest') -> None:
+    """
+    Rebuilds the docker container for the python runtime and push a tag image to to DockerHub.
+    Does not affect current running webapp
+
+    This task is safe, it does not affect the production runtime!
+
+    :param tag: Name of release, preferably a SemVer version number
+    :return:
+    """
+
+    make_wheels()
+    make_default_webapp(tag=tag)
+    # TODO: should be able to specify private repo
+    push_image(tag=tag, live=True)
+
+
+@task
+def release_code(tag: str = 'latest') -> None:
+    """
+    Commits, tags and pushes tag to GitHub
+
+    This task is safe, it does not affect the production runtime!
+
+    :param tag: Name of release, preferably a SemVer version number
+    :return:
+    """
+
+    # TODO: Replace with actually checking for clean tree
+    answer = prompt('Did you remember to first commit all changes??', default='no', )
+    if answer == 'yes':
+        try:
+            local('git tag %s' % tag)
+        except SystemExit:
+            print(yellow('Git tag already exists'))
+
+        git('push origin {tag}'.format(tag=tag))
+
+
+@task
+def release_data(tag: str = 'latest') -> None:
+    """
+    Backup and upload tagged version of database
+
+    This task is safe, it does not affect the production runtime!
+
+    :param tag: Name of release, preferably a SemVer version number
+    :return:
+    """
+    # TODO: Implement S3(?) database/fixture/view storage
+    print('Not implemented! ' + tag)
+
+    # raise NotImplementedError
+
+
+@task
+def release_tag(tag: str = 'latest') -> None:
+    """
+    Convenience task that release a named version of the runtime, code and data
+
+    :param tag: Name of release, preferably a SemVer version number
+    :return:
+    """
+    release_runtime(tag=tag)
+    release_code(tag=tag)
+    release_data(tag=tag)
+
+
+@task
+def build_runtime(tag: str = 'latest', image_name: str = None) -> None:
+    """
+    Builds the production runtime
+
+    This task is safe, it does not affect the running instance! The next restart, however, might change the runtime
+
+    :return:
+    """
+    image_name = image_name if image_name else env.image_name
+
+    # Pull latest docker version
+    docker('pull {image_name}:{image_tag}'.format(image_name=image_name, image_tag=tag), live=True)
+
+    git('fetch --all', live=True)
+    git('checkout --force {tag}'.format(tag=tag), live=True)
+
+    execute("rsync -avz --exclude-from 'etc/exclude-list.txt' ./src/ etc/webapp/build/", live=True)
+
+    with prefix('export UID'):
+        compose('build webapp', live=True)
+
+    docker('tag {image_name}:production {image_name}:{tag}-production'.format(
+        image_name=image_name, tag=tag), live=True)
+
