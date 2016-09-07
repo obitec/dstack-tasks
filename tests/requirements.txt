@@ -1,5 +1,5 @@
 -r ../requirements.txt
-django==1.9.7
+django==1.9.9
 #psycopg2
 invoke==0.13.0
 Sphinx==1.4.1
