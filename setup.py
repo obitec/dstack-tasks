@@ -9,7 +9,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
     name='dstack-tasks',
-    version='0.9.10',
+    version='0.9.11',
     packages=find_packages(),
     url='https://github.com/obitec/dstack-tasks',
     license='BSD License',  # example license
