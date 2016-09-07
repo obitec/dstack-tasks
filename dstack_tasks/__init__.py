@@ -1,7 +1,10 @@
 from .checkup import doctor
 from .utils import dirify, get_result, vc
 from .wrappers import docker, compose, manage, pip, bower, npm, git, postgres, conda, dotenv, execute, filer, s3
-from .deploy import make_wheels, make_default_webapp, push_image, snapshot, rollback, ci, build, build_code
+from .deploy import make_wheels, make_default_webapp, push_image, snapshot, rollback, ci, build
+
+# improved workflow
+from .deploy import release_code, release_data, build_runtime, release_tag, build_code
 
 # Config setup related
 from .tasks import e, fabric_setup, local_setup, remote_setup, postgres_everywhere, init
