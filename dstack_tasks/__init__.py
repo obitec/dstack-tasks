@@ -1,6 +1,6 @@
 from .checkup import doctor
 from .utils import dirify, get_result, vc
-from .wrappers import docker, compose, manage, pip, bower, npm, git, postgres, conda, dotenv, execute, filer
+from .wrappers import docker, compose, manage, pip, bower, npm, git, postgres, conda, dotenv, execute, filer, s3
 from .deploy import make_wheels, make_default_webapp, push_image, snapshot, rollback, ci, build, build_code
 
 # Config setup related
@@ -12,5 +12,3 @@ from .tasks import backup_basics, clean_unused_volumes, sqlite_reset, reset_loca
 
 # Deprecated
 from .tasks import upload_www, upload_config, upload_app, deploy
-
-

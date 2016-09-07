@@ -231,6 +231,7 @@ def release_data(tag: str = 'latest') -> None:
     :return:
     """
     # TODO: Implement S3(?) database/fixture/view storage
+    # TODO: Implement cloud storage for media + static files
     print('Not implemented! ' + tag)
 
     # raise NotImplementedError

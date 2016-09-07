@@ -8,7 +8,7 @@ from fabric.decorators import task
 from fabric.operations import run, local, get, put, prompt
 from fabric.state import env
 
-from dstack_tasks.utils import check_keys
+from .utils import check_keys
 
 
 @task
@@ -239,3 +239,15 @@ def git(cmd: str = '--help', live: bool = False):
     :return:
     """
     execute('git {cmd}'.format(cmd=cmd), live=live)
+
+
+@task
+def s3(cmd: str = 'help') -> None:
+    """
+
+    :param cmd:
+    :return:
+    """
+
+    execute('aws s3 {cmd}'.format(**locals()))
+
