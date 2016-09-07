@@ -71,7 +71,7 @@ def compose(cmd: str = '--help', path: str = None, live: bool = False) -> None:
         'nt': 'set PWD=%cd%&& set IMAGE={image_name}:{image_tag} && ',
     }
 
-    cmd_string = base_cmd.format(env_vars=template[os.name].format(**env), cmd=cmd)
+    cmd_string = base_cmd.format(env_vars=template[os.name if not live else 'posix'].format(**env), cmd=cmd)
 
     try:
         execute(cmd=cmd_string, path=path, live=live)
