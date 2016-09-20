@@ -162,7 +162,7 @@ def build(live: bool = False) -> None:
 
 @task
 def build_code(live: bool = False, migrate: bool = False) -> None:
-    """
+    """DEPRECATED, please see build_runtime
 
     :param live:
     :param migrate:
@@ -245,9 +245,17 @@ def release_tag(tag: str = 'latest') -> None:
     :param tag: Name of release, preferably a SemVer version number
     :return:
     """
-    release_runtime(tag=tag)
-    release_code(tag=tag)
-    release_data(tag=tag)
+    answer = prompt('Did you make changes the database?', default='no', )
+    if answer == 'yes':
+        release_data(tag=tag)
+
+    answer = prompt('Did you update the code?', default='no', )
+    if answer == 'yes':
+        release_code(tag=tag)
+
+    answer = prompt('Did you update python dependencies?', default='no', )
+    if answer == 'yes':
+        release_runtime(tag=tag)
 
 
 @task
@@ -262,16 +270,53 @@ def build_runtime(tag: str = 'latest', image_name: str = None) -> None:
     image_name = image_name if image_name else env.image_name
 
     # Pull latest docker version
-    docker('pull {image_name}:{image_tag}'.format(image_name=image_name, image_tag=tag), live=True)
+    answer = prompt('Did you update the base image?', default='no', )
+    if answer == 'yes':
+        docker('pull {image_name}:{image_tag}'.format(image_name=image_name, image_tag=tag), live=True)
 
     git('fetch --all', live=True)
-    git('checkout --force {tag}'.format(tag=tag), live=True)
+    answer = prompt('Checking out a tag?', default='yes', )
+    if answer == 'yes':
+        git('checkout --force {tag}'.format(tag=tag), live=True)
+    else:
+        git('checkout --force origin/master', live=True)
+
 
     execute("rsync -avz --exclude-from 'etc/exclude-list.txt' ./src/ etc/webapp/build/", live=True)
 
-    with prefix('export UID'):
-        compose('build webapp', live=True)
+    env.image_tag = tag + '-production'
 
-    docker('tag {image_name}:production {image_name}:{tag}-production'.format(
-        image_name=image_name, tag=tag), live=True)
+    # with prefix('export UID'):
+    compose('build webapp', live=True)
+
+    # docker('tag {image_name}:{tag} {image_name}:{tag}'.format(
+    #     image_name=image_name, tag=tag), live=True)
+
+
+@task
+def deploy_runtime(tag: str = 'latest') -> None:
+    """
+    Deploys production runtime.
+
+    This function is not safe and requires a database
+    backup before running!
+
+    :return:
+    """
+
+    env.image_tag = tag + '-production'
+
+    answer = prompt('Did you want to migrate?', default='no', )
+    if answer == 'yes':
+        answer = prompt('Do you want to create a backup?', default='yes', )
+        if answer == 'yes':
+            postgres(cmd='backup', tag= tag + '-rollback', live=True)
+        manage('migrate', live=True)
+        answer = prompt('Was the migration successful?', default='yes', )
+        if answer == 'no':
+            postgres(cmd='restore', tag=tag + '-rollback', live=True)
+            raise Exception('Deployment failed')
+
+    env.image_tag = tag + '-production'
+    compose('up -d webapp', live=True)
 

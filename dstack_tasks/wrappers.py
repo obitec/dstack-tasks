@@ -55,7 +55,7 @@ def execute(cmd: str = '--help', path: str = None, live: bool = False):
 
 
 @task
-def compose(cmd: str = '--help', path: str = None, live: bool = False) -> None:
+def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: bool = False) -> None:
     """
 
     :param cmd:
@@ -63,6 +63,7 @@ def compose(cmd: str = '--help', path: str = None, live: bool = False) -> None:
     :param live:
     :return:
     """
+    env.image_tag = image_tag or env.image_tag
     check_keys(env, ['image_name', 'image_tag'])
 
     base_cmd = '{env_vars}docker-compose {cmd}'
@@ -71,7 +72,7 @@ def compose(cmd: str = '--help', path: str = None, live: bool = False) -> None:
         'nt': 'set PWD=%cd%&& set IMAGE={image_name}:{image_tag} && ',
     }
 
-    cmd_string = base_cmd.format(env_vars=template[os.name if not live else 'posix'].format(**env), cmd=cmd)
+    cmd_string = base_cmd.format(env_vars=template[os.name].format(**env), cmd=cmd)
 
     try:
         execute(cmd=cmd_string, path=path, live=live)
@@ -100,7 +101,7 @@ def manage(cmd: str = 'help', live: bool = False) -> None:
     """
     if live:
         # TODO: Make _staging geniric or apply to others as well
-        compose('run --rm webapp_staging bash -c "python manage.py {cmd}"'.format(cmd=cmd), live=True)
+        compose('run --rm webapp bash -c "python manage.py {cmd}"'.format(cmd=cmd), live=True)
     else:
         with prefix(env.activate):
             local('python src/manage.py {cmd}'.format(cmd=cmd))
@@ -172,7 +173,7 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
             backup_to_path = posixpath.join('/c/', Path(backup_to_path).as_posix()[3:])
 
     params = {
-        'data': '-v %s_dbdata:/data' % env.project_name.replace('.', ''),
+        'data': '-v %s_dbdata:/data' % env.project_name.replace('.', '').replace('_', ''),
         'backup': '-v %s:/backup' % backup_to_path,
         'cmd': actions[cmd],
     }
@@ -191,7 +192,7 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
                 filer(cmd='get', file=posixpath.join('var/backups/', backup_name))
 
     compose('stop postgres', live=live)
-    docker('run --rm {data} {backup} postgres {cmd}'.format(**params), live=live)
+    docker('run --rm {data} {backup} postgres:9.5 {cmd}'.format(**params), live=live)
     compose('start postgres', live=live)
 
     if live and cmd == 'backup':

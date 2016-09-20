@@ -102,6 +102,7 @@ def e(collection: str = '') -> None:
             env.project_name = config['project']['name']
             env.virtual_env = config['development']['conda_environment']
             env.release_tag = config['project']['version']
+            env.image_tag = config['project']['version']
             env.image_name = config['deployment']['docker_image_name']
 
         except yaml.YAMLError as exc:
@@ -113,8 +114,9 @@ def e(collection: str = '') -> None:
     env.project_name = os.environ.get('PROJECT_NAME', env.project_name)
     env.virtual_env = os.environ.get('VIRTUAL_ENV', env.virtual_env)
     env.image_name = os.environ.get('IMAGE_NAME', env.image_name)
+    env.image_tag = 'v%s' % os.environ.get('RELEASE_TAG', env.image_tag)
 
-    env.image_tag = collection if collection else 'latest'
+    # env.image_tag = collection if collection else 'latest'
 
     print(env.image_name, env.image_tag)
 
