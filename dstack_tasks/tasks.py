@@ -1,6 +1,7 @@
 import logging
 import os
 import posixpath
+from distutils.util import strtobool
 
 from fabric.api import env, local, run, settings, put, prompt, task
 from fabric.colors import red, green
@@ -118,7 +119,7 @@ def e(collection: str = '') -> None:
 
     # env.image_tag = collection if collection else 'latest'
 
-    print(env.image_name, env.image_tag)
+    # print(env.image_name, env.image_tag)
 
     activate_venv(env=env, style='conda', venv=env.virtual_env)
     remote_setup(env.project_name)
@@ -293,7 +294,37 @@ def clean_unused_volumes():
         run('docker rm -v  $(docker ps --no-trunc -aq status=exited)')
         run('docker rmi $(docker images -q -f "dangling=true")')
 
-    run('docker run --rm'
-        '-v /var/run/docker.sock:/var/run/docker.sock '
-        '-v /var/lib/docker:/var/lib/docker '
-        'martin/docker-cleanup-volumes')
+    # TODO: Check if up to date before releasing
+    # run('docker run --rm'
+    #     '-v /var/run/docker.sock:/var/run/docker.sock '
+    #     '-v /var/lib/docker:/var/lib/docker '
+    #     'martin/docker-cleanup-volumes')
+
+
+@task
+def sync_env(env_dir: str = 'tmp'):
+    env.env_dir = env_dir
+    run('rsync -aPh ./{env_dir}/ {host_name}:/srv/apps/{project_name}/{env_dir}'.format(**env))
+
+
+@task
+def container_reset(backup: bool = True, data: bool = False, container: str = 'postgres'):
+    """ Resets the container
+
+    :param container:
+    :param backup:
+    :param data:
+    :return:
+    """
+
+    if backup and bool(strtobool(backup)):
+        postgres(cmd='backup')
+
+    if data and bool(strtobool(data)):
+        compose('stop ' + container)
+        compose('rm -v ' + container)
+        # docker('volume rm gauseng_dbdata')
+        compose('up -d ' + container)
+    else:
+        compose('up -d --force-recreate ' + container)
+

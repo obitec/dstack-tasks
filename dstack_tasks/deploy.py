@@ -1,11 +1,11 @@
 from fabric.colors import yellow, red
-from fabric.context_managers import cd, prefix
+from fabric.context_managers import prefix
 from fabric.decorators import task
-from fabric.operations import put, run, prompt, local
-from fabric.state import env
+from fabric.operations import prompt, local
+from fabric.api import env
 
-from dstack_tasks import dirify, compose, docker, postgres, manage, execute, vc, git
-
+from .wrappers import compose, docker, postgres, manage, execute, git
+from .utils import dirify, vc
 
 @task
 def make_wheels() -> None:
@@ -16,22 +16,21 @@ def make_wheels() -> None:
 
     build_dir = dirify(env.build_dir, force_posix=True)
 
-    put('./etc/build-requirements.txt', build_dir('build-requirements.txt'))
+    # put('./{}'.format(require_dir),
+    #     build_dir('build-requirements.txt'))
 
-    with cd(build_dir('wheelhouse')):
-        run('rm -rf *.whl')
+    execute('rm -rf *.whl', path=build_dir('wheelhouse'), live=True)
 
     compose(cmd='-f service.yml -p %s run --rm wheel-factory' % env.project_name, path=build_dir(''), live=True)
 
 
 @task
 def make_default_webapp(tag: str = 'latest') -> None:
-    put('./requirements.txt', '/srv/build/requirements.txt')
+    # put('./requirements.txt', '/srv/build/requirements.txt')
 
     # TODO: make path configurable and locally executable
-    with cd('/srv/build'):
-        run('docker build -t {image_name}:{image_tag} .'.format(
-            image_name=env.image_name, image_tag=tag))
+    execute('docker build -t {image_name}:{image_tag} .'.format(
+        image_name=env.image_name, image_tag=tag), path='/srv/build', live=True)
 
 
 @task
@@ -42,7 +41,7 @@ def push_image(tag: str = 'latest', live: bool = False) -> None:
     :param live:
     :return:
     """
-    docker('push %s:%s' % (env.image_name, tag), live=live)
+    docker('push %s:%s' % (env.image_name, tag), path='', live=live)
 
 
 @task
@@ -144,7 +143,7 @@ def ci(tag: str) -> None:
 @task
 def build(live: bool = False) -> None:
     """
-
+    DEPRECTED: See deploy_runtime
     :param live:
     :return:
     """
@@ -195,7 +194,14 @@ def release_runtime(tag: str = 'latest') -> None:
     make_wheels()
     make_default_webapp(tag=tag)
     # TODO: should be able to specify private repo
+
+    # docker('tag {image_name}:{tag} {image_name}:latest'.format(
+    #     image_name=env.image_name, tag=tag), live=True)
+
     push_image(tag=tag, live=True)
+
+    # TODO: Figure out a way to keep latest up to date
+    # push_image(tag='latest', live=True)
 
 
 @task
@@ -208,16 +214,17 @@ def release_code(tag: str = 'latest') -> None:
     :param tag: Name of release, preferably a SemVer version number
     :return:
     """
-
     # TODO: Replace with actually checking for clean tree
     answer = prompt('Did you remember to first commit all changes??', default='no', )
     if answer == 'yes':
-        try:
-            local('git tag %s' % tag)
-        except SystemExit:
-            print(yellow('Git tag already exists'))
-
-        git('push origin {tag}'.format(tag=tag))
+        if tag == 'latest':
+            git('push origin master')
+        else:
+            try:
+                local('git tag %s' % tag)
+            except SystemExit:
+                print(yellow('Git tag already exists'))
+            git('push origin {tag}'.format(tag=tag))
 
 
 @task
@@ -256,6 +263,9 @@ def release_tag(tag: str = 'latest') -> None:
     answer = prompt('Did you update python dependencies?', default='no', )
     if answer == 'yes':
         release_runtime(tag=tag)
+        # else:
+        #     docker('tag {image_name}:latest {image_name}:{tag}'.format(
+        #         image_name=env.image_name, tag=tag), live=True)
 
 
 @task
@@ -273,6 +283,8 @@ def build_runtime(tag: str = 'latest', image_name: str = None) -> None:
     answer = prompt('Did you update the base image?', default='no', )
     if answer == 'yes':
         docker('pull {image_name}:{image_tag}'.format(image_name=image_name, image_tag=tag), live=True)
+        docker('tag {image_name}:{tag} {image_name}:latest'.format(
+            image_name=image_name, tag=tag), live=True)
 
     git('fetch --all', live=True)
     answer = prompt('Checking out a tag?', default='yes', )
@@ -281,20 +293,18 @@ def build_runtime(tag: str = 'latest', image_name: str = None) -> None:
     else:
         git('checkout --force origin/master', live=True)
 
-
-    execute("rsync -avz --exclude-from 'etc/exclude-list.txt' ./src/ etc/webapp/build/", live=True)
+    # execute("rsync -avz --exclude-from '.dockerignore' ./src/ .local/build/", live=True)
 
     env.image_tag = tag + '-production'
-
     # with prefix('export UID'):
-    compose('build webapp', live=True)
+    docker('tag {image_name}:{tag} default_webapp'.format(
+        image_name=image_name, tag=tag), live=True)
 
-    # docker('tag {image_name}:{tag} {image_name}:{tag}'.format(
-    #     image_name=image_name, tag=tag), live=True)
+    compose('build webapp', live=True)
 
 
 @task
-def deploy_runtime(tag: str = 'latest') -> None:
+def deploy_runtime(tag: str = 'latest', first: bool = False) -> None:
     """
     Deploys production runtime.
 
@@ -306,17 +316,29 @@ def deploy_runtime(tag: str = 'latest') -> None:
 
     env.image_tag = tag + '-production'
 
-    answer = prompt('Did you want to migrate?', default='no', )
-    if answer == 'yes':
-        answer = prompt('Do you want to create a backup?', default='yes', )
-        if answer == 'yes':
-            postgres(cmd='backup', tag= tag + '-rollback', live=True)
+    if first:
+        compose('up -d webapp', live=True)
         manage('migrate', live=True)
-        answer = prompt('Was the migration successful?', default='yes', )
-        if answer == 'no':
-            postgres(cmd='restore', tag=tag + '-rollback', live=True)
-            raise Exception('Deployment failed')
+        manage('loaddata config/fixtures/initial_data.json', live=True)
+
+    else:
+        answer = prompt('Did you want to migrate?', default='no', )
+
+        if answer == 'yes':
+            answer = prompt('Do you want to create a backup?', default='yes', )
+            if answer == 'yes':
+                postgres(cmd='backup', tag=tag + '-rollback', live=True)
+            manage('migrate', live=True)
+            answer = prompt('Was the migration successful?', default='yes', )
+            if answer == 'no':
+                postgres(cmd='restore', tag=tag + '-rollback', live=True)
+                raise Exception('Deployment failed')
 
     env.image_tag = tag + '-production'
     compose('up -d webapp', live=True)
 
+    with prefix('export UID'):
+        env.image_tag = tag
+        # compose('up static_builder', live=live)
+        compose('up static_collector', live=True)
+        compose('up volume_fixer', live=True)

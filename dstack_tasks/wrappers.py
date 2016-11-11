@@ -1,8 +1,10 @@
 import logging
 import os
 import posixpath
+from distutils.util import strtobool
 from pathlib import Path
 
+from fabric.colors import green, yellow, red
 from fabric.context_managers import cd, prefix
 from fabric.decorators import task
 from fabric.operations import run, local, get, put, prompt
@@ -39,25 +41,31 @@ def dotenv(action: str = None, key: str = None, value: str = None, live: bool = 
 
 
 @task
-def execute(cmd: str = '--help', path: str = None, live: bool = False):
-    """
+def execute(cmd: str = '--help', path: str = None, live: bool = False, **kwargs):
+    """ Wrapper for both local and remote tasks optionally setting the execution path.
 
     :param cmd:
     :param path:
     :param live:
     :return:
     """
+
+    if not isinstance(live, bool):
+        live = bool(strtobool(live))
+
     if path is None:
         path = env.project_dir if live else ''
-    print(path)
+    # print(path)
     with cd(path):
-        run(cmd) if live else local(cmd)
+        env.pwd = path
+        run(cmd, **kwargs) if live else local(cmd, **kwargs)
 
 
 @task
 def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: bool = False) -> None:
     """
 
+    :param image_tag:
     :param cmd:
     :param path:
     :param live:
@@ -81,14 +89,18 @@ def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: 
 
 
 @task
-def docker(cmd: str = '--help', live: bool = False) -> None:
+def docker(cmd: str = '--help', path: str = None, live: bool = False) -> None:
     """
 
+    :param path:
     :param cmd:
     :param live:
     :return:
     """
-    execute(cmd='docker {cmd}'.format(cmd=cmd), path=env.get('project_dir', ''), live=live)
+    if path is None:
+        path = env.get('project_dir', '')
+
+    execute(cmd='docker {cmd}'.format(cmd=cmd), path=path, live=live)
 
 
 @task
@@ -252,3 +264,31 @@ def s3(cmd: str = 'help') -> None:
 
     execute('aws s3 {cmd}'.format(**locals()))
 
+
+@task
+def docker_exec(service='postgres', cmd: str = 'bash', live: bool = False):
+    """
+
+    :param service:
+    :param cmd:
+    :param live:
+    :return:
+    """
+    env.service = service
+    env.cmd = cmd
+    docker(cmd='exec -it {project_name}_{service}_1 {cmd}'.format(**env), live=live)
+
+
+@task
+def dry():
+    """Show, but don't run fabric commands"""
+    global local, run
+
+    # Redefine the local and run functions to simply output the command
+    def local(command, capture=False, shell=None):
+        print(green('(dry) '), yellow('[localhost] '), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command, sep='')
+
+    def run(command, shell=True, pty=True, combine_stderr=None, quiet=False,
+            warn_only=False, stdout=None, stderr=None, timeout=None, shell_escape=None,
+            capture_buffer_size=None):
+        print(green('(dry) '), red('[%s] ' % env.host_string), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command, sep='')
