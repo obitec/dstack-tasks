@@ -98,7 +98,8 @@ def docker(cmd: str = '--help', path: str = None, live: bool = False) -> None:
     :return:
     """
     if path is None:
-        path = env.get('project_dir', '')
+        path = ''
+        # path = env.get('project_dir', '')
 
     execute(cmd='docker {cmd}'.format(cmd=cmd), path=path, live=live)
 
@@ -142,19 +143,33 @@ def conda(cmd: str = '--help') -> None:
 
 
 @task
-def filer(cmd: str = 'get', file: str = '.envs', use_sudo: bool = False) -> None:
+def filer(cmd: str = 'get',
+          local_path: str = None, remote_path: str = None,
+          file: str = '.env', use_sudo: bool = False) -> None:
     """
 
+    Specifying a remote_path or a local_path overrides the "file" parameter.
+
+    :param remote_path:
+    :param local_path:
     :param cmd:
     :param file:
     :param use_sudo:
     :return:
     """
+
+    if file:
+        remote_path = remote_path or posixpath.join(env.project_dir, file)
+        local_path = local_path or file
+    else:
+        if not remote_path or local_path:
+            raise AttributeError('Must specify remote_path and local_path if file is not used')
+
     if cmd == 'get':
-        get(posixpath.join(env.project_dir, file), file)
+        get(remote_path=remote_path, local_path=local_path, use_sudo=use_sudo)
     elif cmd == 'put':
-        put(file, posixpath.join(env.project_dir, file), use_sudo=use_sudo)
-        run('chmod go+r {0}'.format(posixpath.join(env.project_dir, file)))
+        put(local_path=local_path, remote_path=remote_path, use_sudo=use_sudo)
+        execute('chmod go+r {0}'.format(remote_path), path='', live=True)
 
 
 @task
@@ -167,6 +182,8 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
     :param sync_prompt:
     :return:
     """
+    if not isinstance(live, bool):
+        live = bool(strtobool(live))
 
     backup_name = 'db_backup.{tag}.tar.gz'.format(tag=tag)
 
@@ -244,14 +261,15 @@ def npm(package: str = 'install'):
 
 
 @task
-def git(cmd: str = '--help', live: bool = False):
+def git(cmd: str = '--help', path: str = None, live: bool = False):
     """
 
+    :param path: Required only when git cloning for the first time.
     :param cmd:
     :param live:
     :return:
     """
-    execute('git {cmd}'.format(cmd=cmd), live=live)
+    execute('git {cmd}'.format(cmd=cmd), live=live, path=path)
 
 
 @task
@@ -280,15 +298,42 @@ def docker_exec(service='postgres', cmd: str = 'bash', live: bool = False):
 
 
 @task
-def dry():
+def loaddata(live: bool = False, app: str = 'config', file_name='initial_data', extension: str = 'json'):
+    """
+
+    :param extension:
+    :param file_name:
+    :param app:
+    :param live:
+    :return:
+    """
+    manage('migrate', live=live)
+    path = 'src/' if not live else ''
+    manage('loaddata {path}{app}/fixtures/{file_name}.{extension}'.format(**locals()), live=live)
+
+
+
+@task
+def dry(dry_run: bool = True) -> None:
     """Show, but don't run fabric commands"""
-    global local, run
+    global local, run, get, put
 
-    # Redefine the local and run functions to simply output the command
-    def local(command, capture=False, shell=None):
-        print(green('(dry) '), yellow('[localhost] '), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command, sep='')
+    if dry_run:
+        # Redefine the local and run functions to simply output the command
+        def local(command, capture=False, shell=None):
+            print(green('(dry) '), yellow('[localhost] '), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command, sep='')
 
-    def run(command, shell=True, pty=True, combine_stderr=None, quiet=False,
-            warn_only=False, stdout=None, stderr=None, timeout=None, shell_escape=None,
-            capture_buffer_size=None):
-        print(green('(dry) '), red('[%s] ' % env.host_string), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command, sep='')
+        def run(command, shell=True, pty=True, combine_stderr=None, quiet=False,
+                warn_only=False, stdout=None, stderr=None, timeout=None, shell_escape=None,
+                capture_buffer_size=None):
+            print(green('(dry) '), red('[%s] ' % env.host_string), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command, sep='')
+
+        def get(remote_path, local_path=None, use_sudo=False, temp_dir=""):
+            host = env.host_string
+            print(green('(dry) '), red('[{}] '.format(host)),
+                  'scp {host}:{remote_path} {local_path}'.format(**locals()), sep='')
+
+        def put(remote_path, local_path=None, use_sudo=False, temp_dir=""):
+            host = env.host_string
+            print(green('(dry) '), red('[{}] '.format(host)),
+                  'scp {local_path} {host}:{remote_path}'.format(**locals()), sep='')

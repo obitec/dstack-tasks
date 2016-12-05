@@ -1,11 +1,15 @@
+import os
+from distutils.util import strtobool
+
+from fabric.api import env
 from fabric.colors import yellow, red
 from fabric.context_managers import prefix
 from fabric.decorators import task
 from fabric.operations import prompt, local
-from fabric.api import env
 
-from .wrappers import compose, docker, postgres, manage, execute, git
 from .utils import dirify, vc
+from .wrappers import compose, docker, postgres, manage, execute, git, filer
+
 
 @task
 def make_wheels() -> None:
@@ -45,16 +49,12 @@ def push_image(tag: str = 'latest', live: bool = False) -> None:
 
 
 @task
-def snapshot(live: bool = False, tag: str = 'tmp') -> None:
+def ci(tag: str) -> None:
     """
 
-    :param live:
     :param tag:
     :return:
     """
-
-    # if tag == 'tmp':
-    #     release = prompt('Please supply a release name', validate=r'^\w+-\d+(\.\d+)?$')
 
     answer = prompt('Did you remember to first commit all changes??', default='no', )
     if answer == 'yes':
@@ -63,7 +63,7 @@ def snapshot(live: bool = False, tag: str = 'tmp') -> None:
         except SystemExit:
             print(yellow('Git tag already exists'))
 
-        postgres('backup', live=live, tag=tag)
+        postgres('backup', live=False, tag=tag)
 
         try:
             docker('tag {image_name}:latest {image_name}:{tag}'.format(
@@ -76,35 +76,6 @@ def snapshot(live: bool = False, tag: str = 'tmp') -> None:
     else:
         print("# Commit changes using:\n$ git commit -a -m 'message...'")
 
-
-@task
-def rollback(live: bool = False, tag: str = 'tmp') -> None:
-    """
-
-    :param live:
-    :param tag:
-    :return:
-    """
-    answer = prompt('Did you remember to first release?', default='no', )
-    # print(answer)
-    if answer == 'yes':
-        local('git branch development')
-        local('git reset --hard %s' % tag)
-        postgres('restore', live=live, tag=tag)
-        docker('tag {image_name}:{tag} {image_name}:latest'.format(
-            image_name=env.image_name, tag=tag))
-    else:
-        print("# You can do a release by running:\n$ fab release:tag='tag'")
-
-
-@task
-def ci(tag: str) -> None:
-    """
-
-    :param tag:
-    :return:
-    """
-    snapshot(tag=tag + '-development', live=False, )
     postgres(cmd='backup', tag=tag + '-staging', live=True)
 
     answer = prompt('Did you update or add dependencies?', default='no', )
@@ -125,7 +96,7 @@ def ci(tag: str) -> None:
     answer = prompt('Was it successful? Do you want to deploy', default='no', )
     if answer == 'yes':
         tag = vc()
-        local("sed -i .bak 's/RELEASE_TAG.*/RELEASE_TAG=%s/g' '.env'" % tag)
+        execute("sed -i .bak 's/RELEASE_TAG.*/RELEASE_TAG=%s/g' '.env'" % tag, live=False)
         # deploy()
         build(live=True)
         # postgres(cmd='restore', tag=tag + '-staging', live=True)
@@ -134,7 +105,7 @@ def ci(tag: str) -> None:
 
         answer = prompt('Did the app successfully update?', default='yes', )
         if answer == 'yes':
-            snapshot(tag=tag, live=True)
+            # snapshot(tag=tag, live=True)
             push_image(tag=tag, live=True)
 
         print('Successfully deployed app %s!' % tag)
@@ -195,13 +166,13 @@ def release_runtime(tag: str = 'latest') -> None:
     make_default_webapp(tag=tag)
     # TODO: should be able to specify private repo
 
-    # docker('tag {image_name}:{tag} {image_name}:latest'.format(
-    #     image_name=env.image_name, tag=tag), live=True)
+    docker('tag {image_name}:{tag} {image_name}:latest'.format(
+        image_name=env.image_name, path='', tag=tag), live=True)
 
     push_image(tag=tag, live=True)
 
     # TODO: Figure out a way to keep latest up to date
-    # push_image(tag='latest', live=True)
+    push_image(tag='latest', live=True)
 
 
 @task
@@ -221,7 +192,7 @@ def release_code(tag: str = 'latest') -> None:
             git('push origin master')
         else:
             try:
-                local('git tag %s' % tag)
+                git('tag %s' % tag)
             except SystemExit:
                 print(yellow('Git tag already exists'))
             git('push origin {tag}'.format(tag=tag))
@@ -263,58 +234,76 @@ def release_tag(tag: str = 'latest') -> None:
     answer = prompt('Did you update python dependencies?', default='no', )
     if answer == 'yes':
         release_runtime(tag=tag)
-        # else:
-        #     docker('tag {image_name}:latest {image_name}:{tag}'.format(
-        #         image_name=env.image_name, tag=tag), live=True)
+    else:
+        docker('tag {image_name}:latest {image_name}:{tag}'.format(
+            image_name=env.image_name, tag=tag), live=True)
 
 
 @task
-def build_runtime(tag: str = 'latest', image_name: str = None) -> None:
+def build_runtime(tag: str = 'latest', instance: str = 'production', image_name: str = None, live: bool = True) -> None:
     """
     Builds the production runtime
 
-    This task is safe, it does not affect the running instance! The next restart, however, might change the runtime
+    This task is safe, it does not affect the running instance!
+    The next restart, however, might change the runtime.
 
     :return:
     """
-    image_name = image_name if image_name else env.image_name
+    if not isinstance(live, bool):
+        live = bool(strtobool(live))
+
+    image_name = image_name or env.image_name
 
     # Pull latest docker version
     answer = prompt('Did you update the base image?', default='no', )
     if answer == 'yes':
         docker('pull {image_name}:{image_tag}'.format(image_name=image_name, image_tag=tag), live=True)
-        docker('tag {image_name}:{tag} {image_name}:latest'.format(
-            image_name=image_name, tag=tag), live=True)
+        docker('pull {image_name}:latest'.format(image_name=image_name), live=True)
+        # docker('tag {image_name}:{tag} {image_name}:latest'.format(
+        #     image_name=image_name, tag=tag), live=True)
 
-    git('fetch --all', live=True)
-    answer = prompt('Checking out a tag?', default='yes', )
-    if answer == 'yes':
-        git('checkout --force {tag}'.format(tag=tag), live=True)
-    else:
-        git('checkout --force origin/master', live=True)
+    if live:
+        git('fetch --all', live=True)
+        answer = prompt('Checking out a tag?', default='yes', )
+        if answer == 'yes':
+            git('checkout --force {tag}'.format(tag=tag), live=True)
+        else:
+            git('checkout --force origin/master', live=True)
 
     # execute("rsync -avz --exclude-from '.dockerignore' ./src/ .local/build/", live=True)
 
-    env.image_tag = tag + '-production'
+    env.image_tag = '{tag}-{instance}'.format(tag=tag, instance=instance)
+    # env.image_tag = tag + '-production'
     # with prefix('export UID'):
     docker('tag {image_name}:{tag} default_webapp'.format(
-        image_name=image_name, tag=tag), live=True)
+        image_name=image_name, tag=tag), path='', live=live)
 
-    compose('build webapp', live=True)
+    compose('build webapp', live=live)
 
 
 @task
-def deploy_runtime(tag: str = 'latest', first: bool = False) -> None:
+def deploy_runtime(tag: str = 'latest', instance: str = 'production', first: bool = False) -> None:
     """
     Deploys production runtime.
 
     This function is not safe and requires a database
     backup before running!
 
+    Tag: the general version of the image name, e.g organization/project:tag
+            this is the base image, it contains the necessary runtime,
+            but not the code and runs as root user.
+
+    Instance: this is the specific instance of the runtime that is being used and
+            contains everything necassaty to run an immutable server.
+            E.g. organization/project:tag-instance
+            (where instance can be production, alpha, beta, or a1, a2 etc). This container also runs
+            as the restricted 'webapp' user. This is usefull for rapid development where the runtime
+            does not necesarily change, but the code is updated. Default is production.
+
     :return:
     """
 
-    env.image_tag = tag + '-production'
+    env.image_tag = '{tag}-{instance}'.format(tag=tag, instance=instance)
 
     if first:
         compose('up -d webapp', live=True)
@@ -334,7 +323,6 @@ def deploy_runtime(tag: str = 'latest', first: bool = False) -> None:
                 postgres(cmd='restore', tag=tag + '-rollback', live=True)
                 raise Exception('Deployment failed')
 
-    env.image_tag = tag + '-production'
     compose('up -d webapp', live=True)
 
     with prefix('export UID'):
@@ -342,3 +330,84 @@ def deploy_runtime(tag: str = 'latest', first: bool = False) -> None:
         # compose('up static_builder', live=live)
         compose('up static_collector', live=True)
         compose('up volume_fixer', live=True)
+
+
+@task
+def deliver(tag: str = 'latest', instance: str = 'production', image_name: str = None, first: bool = False) -> None:
+    """
+
+    :param tag:
+    :param image_name:
+    :param first:
+    :return:
+    """
+    release_tag(tag=tag)
+
+    if first:
+        # TODO: Put org in the env config
+        init_deploy(org=None)
+        copy_envs()
+
+    build_runtime(image_name=image_name, tag=tag, instance=instance)
+    deploy_runtime(tag=tag, instance=instance, first=first)
+
+
+@task
+def create_github_repo():
+    """
+    WIP. Needed for when dstack tasks is standalone invoke tool to manage full workflow
+    :return:
+    """
+    # TODO: Make this work!
+    import requests
+    r = requests.get('https://api.github.com', auth=('user', 'pass'))
+    print(r.status_code)
+    print(r.headers['content-type'])
+
+@task
+def copy_envs(env_path: str = '.local'):
+    """ Copy over config files required by docker-compose containers
+
+    :param env_path:
+    :return:
+    """
+    filer('put', local_path='{path}/*.env'.format(path=env_path), remote_path='/srv/apps/{project}/{path}/'.format(
+        project=env.project_name, path=env_path))
+
+
+@task
+def init_deploy(org: str):
+    """
+    Task to deploy app to server for first time.
+
+    TODO: make distinction between project name and GitHub name. Also allow other git repos/hosts
+    :return:
+    """
+    if org:
+        env.organisation = org
+
+    git(cmd='clone git@github.com:{}/{}.git'.format(env.organisation, env.project_name),
+        path='/srv/apps', live=True)
+
+    execute('mkdir -p .local', live=True)
+    execute('mkdir -p src/static', live=True)
+
+    # TODO: Make this work. Maybe check out dockergen templating or add to server install
+    execute('cp /srv/nginx/templates/nginx-vhost.conf /srv/nginx/vhost.d/{}'.format(env.virtual_host),
+            path='', live=True)
+    execute("sed -i.bak 's/{{project_name}}/%s/g' '/srv/nginx/vhost.d/%s'" % (
+        env.project_name.replace('.', '\.'), env.virtual_host), path='', live=True)
+
+
+# @task
+# def copy_envs():
+#     put('.local/*', '/srv/apps/{}/.local/'.format(env.project_name))
+
+
+# INSTALL Virtualenv kernal python:
+# OUTDATED but with correct path to copy:
+# http://help.pythonanywhere.com/pages/IPythonNotebookVirtualenvs
+
+# Correct usage:
+# https://github.com/ipython/ipykernel/issues/52#issuecomment-212001601
+

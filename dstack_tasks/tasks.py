@@ -4,13 +4,11 @@ import posixpath
 from distutils.util import strtobool
 
 from fabric.api import env, local, run, settings, put, prompt, task
-from fabric.colors import red, green
+from fabric.colors import green
 from fabric.contrib.project import rsync_project
 
-from dstack_tasks import make_wheels
-from dstack_tasks.deploy import make_default_webapp
 from dstack_tasks.utils import activate_venv
-from dstack_tasks.wrappers import compose, manage, filer, postgres
+from dstack_tasks.wrappers import compose, manage, filer, postgres, execute
 
 
 def fabric_setup() -> None:
@@ -169,23 +167,21 @@ def sqlite_reset():
     # manage('loaddata ./src/customer_management/fixtures/initial_data.json')
 
 
-def upload_app():
-    rsync_project(
-        env.project_dir, './',
-        exclude=(
-            '.git', '.gitignore', '__pycache__', '*.pyc', '.DS_Store', 'environment.yml',
-            'fabfile.py', 'Makefile', '.idea',
-            'bower_components', 'node_modules',
-            'static', 'var',
-            'server.env', '.env.example', 'requirements.txt', 'README.md',
-        ), delete=True)
-
-
 def upload_www():
+    """
+    DEPRECATED
+    TODO: Develop proper method for version controled static files release
+    :return:
+    """
     rsync_project('/srv/htdocs/%s/' % env.project_name, './var/www/', exclude=('node_modules',))
 
 
 def upload_config():
+    """
+    DEPRECATED
+    TODO: Move virtualhost logic to dockergen template
+    :return:
+    """
     put('./etc/nginx-vhost.conf', '/srv/nginx/vhost.d/%s' % env.virtual_host)
     run("sed -i.bak 's/{{project_name}}/%s/g' '/srv/nginx/vhost.d/%s'" % (
         env.project_name.replace('.', '\.'), env.virtual_host))
@@ -194,34 +190,6 @@ def upload_config():
     #     put('./etc/certs/%s.crt' % env.virtual_host, '/srv/certs/')
     # except:
     #     print('No certs found')
-
-
-@task
-def deploy():
-    """ Deploy code directly from development machine.
-
-    DEPRECATED: Deploy using GitHub and docker build containers.
-    See build() task
-    """
-    print(red('DEPRECATION WARNING:'),
-          'This method will be removed in next release. Please use build() task instead')
-
-    manage('makemigrations')
-    manage('migrate')
-    manage('collectstatic --noinput -v1')
-
-    answer = prompt('Did makemigrations found any changes?', default='yes', )
-    if answer == 'no':
-        upload_www()
-        # upload_config()
-        upload_app()
-    else:
-        print('First commit all changes and test migrations')
-
-
-def update_runtime():
-    make_wheels()
-    make_default_webapp()
 
 
 def reset_local_postgres(live: bool = False):
@@ -294,17 +262,17 @@ def clean_unused_volumes():
         run('docker rm -v  $(docker ps --no-trunc -aq status=exited)')
         run('docker rmi $(docker images -q -f "dangling=true")')
 
-    # TODO: Check if up to date before releasing
-    # run('docker run --rm'
-    #     '-v /var/run/docker.sock:/var/run/docker.sock '
-    #     '-v /var/lib/docker:/var/lib/docker '
-    #     'martin/docker-cleanup-volumes')
+        # TODO: Check if up to date before releasing
+        # run('docker run --rm'
+        #     '-v /var/run/docker.sock:/var/run/docker.sock '
+        #     '-v /var/lib/docker:/var/lib/docker '
+        #     'martin/docker-cleanup-volumes')
 
 
 @task
-def sync_env(env_dir: str = 'tmp'):
+def sync_env(env_dir: str = '.local'):
     env.env_dir = env_dir
-    run('rsync -aPh ./{env_dir}/ {host_name}:/srv/apps/{project_name}/{env_dir}'.format(**env))
+    execute('rsync -aPh ./{env_dir}/ {host_name}:/srv/apps/{project_name}/{env_dir}'.format(**env), live=False)
 
 
 @task
@@ -327,4 +295,3 @@ def container_reset(backup: bool = True, data: bool = False, container: str = 'p
         compose('up -d ' + container)
     else:
         compose('up -d --force-recreate ' + container)
-
