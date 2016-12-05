@@ -71,6 +71,9 @@ def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: 
     :param live:
     :return:
     """
+    if not isinstance(live, bool):
+        live = bool(strtobool(live))
+
     env.image_tag = image_tag or env.image_tag
     check_keys(env, ['image_name', 'image_tag'])
 
@@ -80,7 +83,7 @@ def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: 
         'nt': 'set PWD=%cd%&& set IMAGE={image_name}:{image_tag} && ',
     }
 
-    cmd_string = base_cmd.format(env_vars=template[os.name].format(**env), cmd=cmd)
+    cmd_string = base_cmd.format(env_vars=template[os.name if not live else 'posix'].format(**env), cmd=cmd)
 
     try:
         execute(cmd=cmd_string, path=path, live=live)
@@ -186,6 +189,7 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
         live = bool(strtobool(live))
 
     backup_name = 'db_backup.{tag}.tar.gz'.format(tag=tag)
+    backup_path = '.local/backups'
 
     backup_path = posixpath.join('/backup/', backup_name)
     actions = {
@@ -195,9 +199,9 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
 
     # The assumption is that 'live' will always be on unix server
     if live:
-        backup_to_path = posixpath.join(env.project_dir, 'var/backups')
+        backup_to_path = posixpath.join(env.project_dir, backup_path)
     else:
-        backup_to_path = os.path.join(env.project_path, 'var/backups')
+        backup_to_path = os.path.join(env.project_path, backup_path)
         if os.name == 'nt':
             backup_to_path = posixpath.join('/c/', Path(backup_to_path).as_posix()[3:])
 
@@ -213,12 +217,12 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
             if answer == 'yes':
                 with cd(env.project_dir):
                     run('mkdir -p var/backups')
-                filer(cmd='put', file=os.path.join('var/backups/', backup_name), use_sudo=True)
+                filer(cmd='put', file=os.path.join(backup_path, backup_name), use_sudo=True)
 
         if not live and cmd == 'restore':
             answer = prompt('Do you first want to download the backup?', default='no', )
             if answer == 'yes':
-                filer(cmd='get', file=posixpath.join('var/backups/', backup_name))
+                filer(cmd='get', file=posixpath.join(backup_path, backup_name))
 
     compose('stop postgres', live=live)
     docker('run --rm {data} {backup} postgres:9.5 {cmd}'.format(**params), live=live)
@@ -228,7 +232,7 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
         if sync_prompt:
             answer = prompt('Did you want to download backup?', default='no', )
             if answer == 'yes':
-                filer(cmd='get', file=posixpath.join('var/backups/', backup_name))
+                filer(cmd='get', file=posixpath.join(backup_path, backup_name))
 
 
 @task
