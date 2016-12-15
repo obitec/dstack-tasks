@@ -116,7 +116,7 @@ def manage(cmd: str = 'help', live: bool = False) -> None:
     :return:
     """
     if live:
-        # TODO: Make _staging geniric or apply to others as well
+        # TODO: Make _staging generic or apply to others as well
         compose('run --rm webapp bash -c "python manage.py {cmd}"'.format(cmd=cmd), live=True)
     else:
         with prefix(env.activate):

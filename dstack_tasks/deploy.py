@@ -237,6 +237,8 @@ def release_tag(tag: str = 'latest') -> None:
     else:
         docker('tag {image_name}:latest {image_name}:{tag}'.format(
             image_name=env.image_name, tag=tag), live=True)
+        # push_image(tag=tag, live=True)
+        docker('push %s:%s' % (env.image_name, tag), path='', live=True)
 
 
 @task
@@ -336,6 +338,7 @@ def deploy_runtime(tag: str = 'latest', instance: str = 'production', first: boo
 def deliver(tag: str = 'latest', instance: str = 'production', image_name: str = None, first: bool = False) -> None:
     """
 
+    :param instance:
     :param tag:
     :param image_name:
     :param first:
@@ -376,7 +379,7 @@ def copy_envs(env_path: str = '.local'):
 
 
 @task
-def init_deploy(org: str):
+def init_deploy(org: str, ssh: bool = False):
     """
     Task to deploy app to server for first time.
 
@@ -386,8 +389,12 @@ def init_deploy(org: str):
     if org:
         env.organisation = org
 
-    git(cmd='clone git@github.com:{}/{}.git'.format(env.organisation, env.project_name),
-        path='/srv/apps', live=True)
+    if ssh:
+        git(cmd='clone git@github.com:{}/{}.git {}'.format(env.organisation, env.git_repo, env.project_name),
+            path='/srv/apps', live=True)
+    else:
+        git(cmd='clone https://github.com/{}/{} {}'.format(env.organisation, env.git_repo, env.project_name),
+            path='/srv/apps', live=True)
 
     execute('mkdir -p .local', live=True)
     execute('mkdir -p src/static', live=True)

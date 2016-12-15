@@ -18,7 +18,7 @@ from .deploy import (
     build_code, init_deploy, copy_envs, deliver)
 
 # Config setup related
-from .tasks import e, fabric_setup, local_setup, remote_setup, postgres_everywhere, init
+from .tasks import e, fabric_setup, local_setup, remote_setup, postgres_everywhere
 
 # Untested
 from .tasks import (
