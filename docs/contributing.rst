@@ -12,10 +12,10 @@ Contributing
     pyvenv-3.5 venv
     . venv/bin/activate
 
-2. Update pip and innstall development dependencies::
+2. Update pip and install development dependencies::
 
     pip install -U pip
-    pip install -r tests/requirements.txt
+    pip install -e .[dev]
 
 3. Build the app and docs::
 

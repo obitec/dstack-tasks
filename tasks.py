@@ -49,8 +49,9 @@ def create_test_app(ctx):
 def docs(ctx):
     """Build html docs
 
-    :return:
     """
+    run('sphinx-apidoc -f -o docs/modules dstack_tasks')
+
     with cd('docs'):
         run('make html')
 
@@ -74,6 +75,7 @@ def clean(ctx, docs=False, bytecode=False, venv=False, extra=''):
 def build(ctx, docs=False):
     run("python setup.py sdist bdist_wheel")
     if docs:
+        # run('sphinx-apidoc -f -o docs/modules dstack_tasks')
         run("sphinx-build docs docs/_build")
 
 

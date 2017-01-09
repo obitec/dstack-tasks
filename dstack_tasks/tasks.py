@@ -12,19 +12,25 @@ from dstack_tasks.wrappers import compose, manage, filer, postgres, execute
 
 
 def fabric_setup() -> None:
-    """ Configure Fabric
+    """Configure Fabric
 
     """
     # Global config
     env.use_ssh_config = True
     env.log_level = logging.INFO
+    env.pwd = local("pwd", capture=True)
 
 
 def local_setup(collection: str = '') -> None:
     """Configure local paths and settings
 
     Will also load .env files and <collection>.env files
-    if python-dotenv is installed
+    if python-dotenv is installed. <collection.env> files are stored in
+    the project root under the .local folder and should not be checked into version control.
+
+    Args:
+        collection: The <collection>.env file that should be loaded before a task is executed.
+
     """
     # Local paths
     # env.project_path = os.path.dirname(os.path.dirname(__file__))
@@ -46,7 +52,7 @@ def local_setup(collection: str = '') -> None:
 
     # Read collection .env overrides
     if collection:
-        load_dotenv(os.path.join(env.project_path, collection + '.env'))
+        load_dotenv(os.path.join(env.project_path, '.local', collection + '.env'))
 
     # Read local .env
     load_dotenv(env.local_dotenv_path)
@@ -55,8 +61,9 @@ def local_setup(collection: str = '') -> None:
 def remote_setup(project_name: str) -> None:
     """ Configure the project paths based on project_name
 
-    :param project_name:
-    :return:
+    Args:
+        project_name: The name of the project
+
     """
 
     # Configure paths
@@ -80,12 +87,25 @@ def remote_setup(project_name: str) -> None:
 
 
 @task
-def e(collection: str = '') -> None:
-    """ Set environment
+def e(collection: str = '', tag: str = 'latest') -> None:
+    """Set environment
+
     Optionally run before other task to configure environment
 
-    :param collection:
-    :return:
+    Task to set the tag during runtime.
+
+    Args:
+        collection: Used to specify a local collection of env settings.
+            Useful when having different setups like staging/production/etc
+
+        tag: The tag, preferably a SemVer version compatible string.
+
+    Returns:
+        The tag supplied
+
+    Examples:
+        fab e:tag=v1.0.0 echo  # outputs the env with updated tag
+
     """
 
     fabric_setup()
@@ -105,6 +125,7 @@ def e(collection: str = '') -> None:
             env.image_name = config['deployment']['docker_image_name']
             env.organisation = config['project']['organisation']
             env.git_repo = config['project']['git_repo']
+            env.wheel_factory = config['wheel_factory']['hostname']
 
         except yaml.YAMLError as exc:
             print(exc)
@@ -127,10 +148,7 @@ def e(collection: str = '') -> None:
     # Server environment
     env.hosts = [os.environ.get('HOST_NAME', collection), ]
 
-
-def install_help():
-    print('To install Python 3 Fabric, run:')
-    print('pip install -U Fabric3')
+    env.tag = tag
 
 
 def translate():
@@ -156,20 +174,19 @@ def sqlite_reset():
 
 
 def upload_www():
+    """ **Deprecated**. See :py:func:`deploy_runtime`.
+
     """
-    DEPRECATED
-    TODO: Develop proper method for version controled static files release
-    :return:
-    """
+    # TODO: Develop proper method for version controlled static files release
     rsync_project('/srv/htdocs/%s/' % env.project_name, './var/www/', exclude=('node_modules',))
 
 
 def upload_config():
+    """ **Deprecated**. See :py:func:`deploy_runtime`.
+
     """
-    DEPRECATED
-    TODO: Move virtualhost logic to dockergen template
-    :return:
-    """
+    # TODO: Move virtualhost logic to dockergen template
+
     put('./etc/nginx-vhost.conf', '/srv/nginx/vhost.d/%s' % env.virtual_host)
     run("sed -i.bak 's/{{project_name}}/%s/g' '/srv/nginx/vhost.d/%s'" % (
         env.project_name.replace('.', '\.'), env.virtual_host))
@@ -180,7 +197,7 @@ def upload_config():
     #     print('No certs found')
 
 
-def reset_local_postgres(live: bool = False):
+def _reset_local_postgres(live: bool = False):
     import time
     timestamp = int(time.time())
     postgres('backup', tag=str(timestamp))
@@ -190,12 +207,28 @@ def reset_local_postgres(live: bool = False):
     compose('up -d postgres')
 
 
-def restore_latest_postgres(live: bool = False):
+def _restore_latest_postgres(live: bool = False):
     # TODO: Implement intelligent database restore
     pass
 
 
-def postgres_everywhere():
+@task
+def configure_hosts():
+    """Sets up hosts file to allow seamless local development that mimics production environment.
+
+    Returns:
+        None
+
+    Warning:
+        Experimental!
+
+    Todo:
+        Properly document and link
+        sudo ifconfig lo0 alias 10.200.10.1/24
+
+    """
+    # TODO: Update for Docker for Mac.
+
     ip_template = 'docker inspect {0}_postgres_1 | jq .[0].NetworkSettings.Networks.{0}_internal.IPAddress'
     ip_address = local(ip_template.format(env.project_name), capture=True).strip('"')
 
@@ -209,19 +242,26 @@ def postgres_everywhere():
 
     else:
         with settings(warn_only=True):
-            local(r'python bin\utils\hosts.py postgres --set %docker_host%')
+            local(r'python -m dstack_tasks._hosts postgres --set %docker_host%')
         print(green('Successfully updated hosts file!'))
 
 
 def datr(module: str = 'auth', target: str = 'local') -> None:
-    """ Manage data
-    :param module:
-    :param target:
+    """Transport data to and from development and production servers
 
-    Manually run this command:
-        fab manage:'dumpdata -v 0 --indent 2 assessment > ./src/data_dump.json',live=1
+    Warning:
+        This task has only been tested for NaturalData models with less than 100 entries,
+        it might not be suitable for complex models and large datasets.
+
+    Args:
+        module: The module to transport
+        target: If local, data is dumped from server and installed on local machine,
+            else it is dumped from local machine and uploaded to server
+
+    Examples:
+        fab manage:'dumpdata -v 0 --indent 2 assessment > ./src/data_dump.json',live=True
         fab filer:get,src/data_dump.json
-        fab postgr
+        fab postgres:backup,live=False
         fab manage:'loaddata ./src/dump_data.json'
     """
 
@@ -245,7 +285,7 @@ def datr(module: str = 'auth', target: str = 'local') -> None:
 
 
 # DANGER!!!
-def clean_unused_volumes():
+def _clean_unused_volumes():
     with settings(warn_only=True):
         run('docker rm -v  $(docker ps --no-trunc -aq status=exited)')
         run('docker rmi $(docker images -q -f "dangling=true")')
@@ -259,18 +299,32 @@ def clean_unused_volumes():
 
 @task
 def sync_env(env_dir: str = '.local'):
+    """rsync .env files to server.
+
+    Args:
+        env_dir: .local by default.
+
+    """
     env.env_dir = env_dir
     execute('rsync -aPh ./{env_dir}/ {host_name}:/srv/apps/{project_name}/{env_dir}'.format(**env), live=False)
 
 
 @task
 def container_reset(backup: bool = True, data: bool = False, container: str = 'postgres'):
-    """ Resets the container
+    """ Resets the docker container, also removes dangling volumes.
 
-    :param container:
-    :param backup:
-    :param data:
-    :return:
+    Warning:
+        Removes dangling data volumes, will result in dataloss!
+
+    Args:
+        backup: To backup or not to backup postgres database first.
+        data: If True, stop and delete the container along with any dangling volumes, else just forces a recreate.
+            If a named volume is involved, that volume needs to be manually deleted using docker volume rm <name>.
+            But always first backup this volume!!
+        container: Container name as given in the docker-compose file.
+
+    Returns:
+        None
     """
 
     if backup and bool(strtobool(backup)):

@@ -1,3 +1,15 @@
+"""Fabric task wrappers to interact with most development tools like docker, git, etc.
+
+TODO:
+    Remove all hardcoded references to "src" and prepare to depreecate the ``project_name/src`` project structure
+    in favour of ``project_name/project_name``.
+
+    The end-goal is to be able to package webapps with its' manage.py file exposed as a console script.
+    This will require all webapps to be updated to use import links like ``project_name.module.function``
+    instead of ``.module.function`` where applicable.
+
+"""
+import importlib
 import logging
 import os
 import posixpath
@@ -9,6 +21,7 @@ from fabric.context_managers import cd, prefix
 from fabric.decorators import task
 from fabric.operations import run, local, get, put, prompt
 from fabric.state import env
+from fabric.tasks import execute as fab_exec
 
 from .utils import check_keys
 
@@ -40,14 +53,27 @@ def dotenv(action: str = None, key: str = None, value: str = None, live: bool = 
         execute(command, live=live)
 
 
+# @task
+# def execute_on(host: str, task_name: str):
+#     tasks = importlib.import_module('dstack_tasks')
+#     task_instance = getattr(tasks, task_name)
+#
+#     if not env.dry:
+#         fab_exec(task=task_instance, host=host)
+#     else:
+#         task_instance()
+
+
 @task
 def execute(cmd: str = '--help', path: str = None, live: bool = False, **kwargs):
     """ Wrapper for both local and remote tasks optionally setting the execution path.
 
-    :param cmd:
-    :param path:
-    :param live:
-    :return:
+    Args:
+        cmd:
+        path:
+        live:
+        **kwargs:
+
     """
 
     if not isinstance(live, bool):
@@ -63,13 +89,14 @@ def execute(cmd: str = '--help', path: str = None, live: bool = False, **kwargs)
 
 @task
 def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: bool = False) -> None:
-    """
+    """docker-compose wrapper
 
-    :param image_tag:
-    :param cmd:
-    :param path:
-    :param live:
-    :return:
+    Args:
+        cmd: Command
+        image_tag: Image tag
+        path: path
+        live: Live or local.
+
     """
     if not isinstance(live, bool):
         live = bool(strtobool(live))
@@ -93,12 +120,14 @@ def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: 
 
 @task
 def docker(cmd: str = '--help', path: str = None, live: bool = False) -> None:
-    """
+    """Task wrapping docker
 
-    :param path:
-    :param cmd:
-    :param live:
-    :return:
+    Args:
+        cmd: The docker command to run.
+        path: The path in which the docker command should be executed.
+            Needed when building images or copying files.
+        live:
+
     """
     if path is None:
         path = ''
@@ -108,27 +137,34 @@ def docker(cmd: str = '--help', path: str = None, live: bool = False) -> None:
 
 
 @task
-def manage(cmd: str = 'help', live: bool = False) -> None:
-    """
+def manage(cmd: str = 'help', live: bool = False, package: bool = False) -> None:
+    """Task wrapping python src/manage.py
 
-    :param cmd:
-    :param live:
-    :return:
+    Args:
+        package: whether manage.py is in a folder named after the package or under ``src``
+        cmd: The manage.py command to run.
+        live:
+
     """
     if live:
         # TODO: Make _staging generic or apply to others as well
         compose('run --rm webapp bash -c "python manage.py {cmd}"'.format(cmd=cmd), live=True)
     else:
+        # TODO: remove hardcoded src, replace with project name
         with prefix(env.activate):
-            local('python src/manage.py {cmd}'.format(cmd=cmd))
+            if not package:
+                local('python src/manage.py {cmd}'.format(cmd=cmd))
+            else:
+                local('python {project_name}/manage.py {cmd}'.format(cmd=cmd, project_name=env.project_name))
 
 
 @task
 def pip(cmd: str = '--help') -> None:
-    """
+    """Task wrapping pip
 
-    :param cmd:
-    :return:
+    Args:
+        cmd: The pip command to run.
+
     """
     with prefix(env.activate):
         local('pip {cmd}'.format(cmd=cmd))
@@ -136,10 +172,11 @@ def pip(cmd: str = '--help') -> None:
 
 @task
 def conda(cmd: str = '--help') -> None:
-    """
+    """Task wrapping conda
 
-    :param cmd:
-    :return:
+    Args:
+        cmd: The conda command to run.
+
     """
     with prefix(env.activate):
         local('conda {cmd}'.format(cmd=cmd))
@@ -149,16 +186,18 @@ def conda(cmd: str = '--help') -> None:
 def filer(cmd: str = 'get',
           local_path: str = None, remote_path: str = None,
           file: str = '.env', use_sudo: bool = False) -> None:
-    """
+    """Specifying a remote_path or a local_path overrides the "file" parameter.
 
-    Specifying a remote_path or a local_path overrides the "file" parameter.
+    Args:
+        cmd: Either "get" or "put". Corresponds with the "get" and "put" Fabric tasks.
+        local_path: Path to local file
+        remote_path: Path to remote file
+        file: Shortcut if it is a file that needs to be copied to its corresponding project location
+        use_sudo: Prompts for sudo password to run the command with elevated privileges.
 
-    :param remote_path:
-    :param local_path:
-    :param cmd:
-    :param file:
-    :param use_sudo:
-    :return:
+    Raises:
+        AttributeError: Raised if neither `file` nor local and remote paths where specified.
+
     """
 
     if file:
@@ -177,13 +216,19 @@ def filer(cmd: str = 'get',
 
 @task
 def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_prompt: bool = False):
-    """
-    Task for backup and restore of database
-    :param cmd:
-    :param live:
-    :param tag:
-    :param sync_prompt:
-    :return:
+    """Task for backup and restore of postgres database
+
+    Args:
+        cmd: either backup or restore.
+        live:
+        tag:
+        sync_prompt: Whether to prompt for downloading or uploading backups.
+            **Deprecated** in favor of S3 based solution to prevent direct upload and downloading of large files.
+
+    Todo:
+        * This tasks needs to be optimized to use postgres tools like mysql_dump and needs
+        * It also needs to be generalized to allow MySQL backups and syncing to S3 (or other storage)
+
     """
     if not isinstance(live, bool):
         live = bool(strtobool(live))
@@ -236,10 +281,11 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
 
 @task
 def bower(component: str = 'rebuild') -> None:
-    """
+    """Task wrapping bower. If component is specified, install and saves to the bower.json file.
 
-    :param component:
-    :return:
+    Args:
+        component: The bower component to be installed
+
     """
     if component != 'rebuild':
         local('bower install --save {0}'.format(component))
@@ -252,10 +298,11 @@ def bower(component: str = 'rebuild') -> None:
 
 @task
 def npm(package: str = 'install'):
-    """
+    """Task wrapping npm
 
-    :param package:
-    :return:
+    Args:
+        package: specifies the npm pacakge to install.
+
     """
     if package == 'install':
         local('npm install --only=dev --prefix bin')
@@ -265,35 +312,49 @@ def npm(package: str = 'install'):
 
 @task
 def git(cmd: str = '--help', path: str = None, live: bool = False):
-    """
+    """Task wrapping git.
 
-    :param path: Required only when git cloning for the first time.
-    :param cmd:
-    :param live:
-    :return:
+    Args:
+        cmd: The git command to run.
+        path: Required only when git cloning for the first time.
+        live:
+
+    Returns:
+
     """
     execute('git {cmd}'.format(cmd=cmd), live=live, path=path)
 
 
 @task
 def s3(cmd: str = 'help') -> None:
+    """Task wrapping the "aws s3" interface.
+
+    Note:
+        Requires that awscli be installed and configured and available in the path.
+
+    Args:
+        cmd: The aws s3 command to run.
     """
 
-    :param cmd:
-    :return:
-    """
-
+    # TODO: Raise error if awscli is not installed
     execute('aws s3 {cmd}'.format(**locals()))
 
 
 @task
 def docker_exec(service='postgres', cmd: str = 'bash', live: bool = False):
-    """
+    """Function that wraps the docker exec interface.
+    This task reduces the amount of boiler plate needed to execute tasks in docker containers
+    spawned by docker-compose.
 
-    :param service:
-    :param cmd:
-    :param live:
-    :return:
+
+    Args:
+        service: typically the name of the project with spaces, underscores, etc removed.
+           E.g. project_name becomes projectname.
+        cmd: The command to be executed in the docker container.
+        live:
+
+    Returns:
+
     """
     env.service = service
     env.cmd = cmd
@@ -304,16 +365,18 @@ def docker_exec(service='postgres', cmd: str = 'bash', live: bool = False):
 def loaddata(live: bool = False, app: str = 'config', file_name='initial_data', extension: str = 'json'):
     """
 
-    :param extension:
-    :param file_name:
-    :param app:
-    :param live:
-    :return:
+    Args:
+        live:
+        app: which app
+        file_name: Defaults to initial_data.
+        extension: Default is json. Yaml is also supported if PyYaml is installed.
+
+    Returns:
+
     """
     manage('migrate', live=live)
     path = 'src/' if not live else ''
     manage('loaddata {path}{app}/fixtures/{file_name}.{extension}'.format(**locals()), live=live)
-
 
 
 @task
@@ -321,15 +384,19 @@ def dry(dry_run: bool = True) -> None:
     """Show, but don't run fabric commands"""
     global local, run, get, put
 
+    env.dry = True
+
     if dry_run:
         # Redefine the local and run functions to simply output the command
         def local(command, capture=False, shell=None):
-            print(green('(dry) '), yellow('[localhost] '), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command, sep='')
+            print(green('(dry) '), yellow('[localhost] '), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command,
+                  sep='')
 
         def run(command, shell=True, pty=True, combine_stderr=None, quiet=False,
                 warn_only=False, stdout=None, stderr=None, timeout=None, shell_escape=None,
                 capture_buffer_size=None):
-            print(green('(dry) '), red('[%s] ' % env.host_string), 'cd %s && ' % env.pwd if env.pwd else '', '%s' % command, sep='')
+            print(green('(dry) '), red('[%s] ' % env.host_string), 'cd %s && ' % env.pwd if env.pwd else '',
+                  '%s' % command, sep='')
 
         def get(remote_path, local_path=None, use_sudo=False, temp_dir=""):
             host = env.host_string

@@ -1,3 +1,4 @@
+import io
 import os
 from distutils.util import strtobool
 
@@ -6,22 +7,51 @@ from fabric.colors import yellow, red
 from fabric.context_managers import prefix
 from fabric.decorators import task
 from fabric.operations import prompt, local
-
 from .utils import dirify, vc
-from .wrappers import compose, docker, postgres, manage, execute, git, filer
+from .wrappers import compose, docker, execute, postgres, manage, git, filer
+import os.path
 
 
 @task
-def make_wheels() -> None:
-    """
+def make_wheels(package: str = None) -> None:
+    """Build wheels for python packages
 
-    :return:
-    """
+    Creates wheel package for each dependency specified in build-reqs.txt (if it exists) else
+    relies on the main packages's setup.py file to find and build dependencies.
 
+    Args:
+        package (str): The primary package. Any input accepted by pip is accepted here. E.g.:
+            `dstack-tasks` or `dstack-tasks>1.0.0`.
+
+    See also:
+        :py:func:`make_default_webapp` Uses these wheels to create a docker runtime with only the minimal
+        libraries required to run the primary package.
+
+    Returns:
+        None
+
+    Raises:
+        AttributeError: Raised when neither a package nor a build-reqs.txt is specified.
+
+    Warnings:
+        This function requires a working `wheels-factory <https://github.com/obitec/wheel-factory/>`_ to be running on the specified server.
+
+    Note:
+        This task can be run on a different server that the one being deployed to by supplying the ``hosts``
+        command line argument.
+
+
+    """
     build_dir = dirify(env.build_dir, force_posix=True)
 
-    # put('./{}'.format(require_dir),
-    #     build_dir('build-requirements.txt'))
+    if os.path.exists('build-reqs.txt'):
+        filer(cmd='put', local_path='build-reqs.txt', remote_path=build_dir('build-requirements.txt'))
+
+    elif package:
+        filer(cmd='put', local_path=io.StringIO(package), remote_path=build_dir('build-requirements.txt'))
+
+    else:
+        raise AttributeError('Either a package must be specified or build-reqs.txt must exist.')
 
     execute('rm -rf *.whl', path=build_dir('wheelhouse'), live=True)
 
@@ -29,8 +59,26 @@ def make_wheels() -> None:
 
 
 @task
-def make_default_webapp(tag: str = 'latest') -> None:
-    # put('./requirements.txt', '/srv/build/requirements.txt')
+def make_default_webapp(tag: str = 'latest', package: str = None) -> None:
+    """Builds a docker image that contains the necessary libraries and dependencies to run the
+    specified package from.
+
+    Note:
+        This task requires that the package has a setup.py file that lists all its dependencies
+         in ``install_requires``. If this is not the case, an optional ``requirements.txt`` can be supplied.
+
+    Args:
+        package: The name and optional version of package to build a docker image for.
+            Can be any format that is accepted by pip, including GitHub links.
+        tag: The SemVer Tag
+
+    Returns:
+        None
+
+    """
+
+    if os.path.exists('requirements.txt'):
+        filer(cmd='put', local_path='./requirements.txt', remote_path='/srv/build/requirements.txt')
 
     # TODO: make path configurable and locally executable
     execute('docker build -t {image_name}:{image_tag} .'.format(
@@ -39,21 +87,19 @@ def make_default_webapp(tag: str = 'latest') -> None:
 
 @task
 def push_image(tag: str = 'latest', live: bool = False) -> None:
-    """
+    """Wrapper to simplify pushing an image to DockerHub
 
-    :param tag:
-    :param live:
-    :return:
     """
     docker('push %s:%s' % (env.image_name, tag), path='', live=live)
 
 
 @task
 def ci(tag: str) -> None:
-    """
+    """**Deprecated**. See :py:func:`deliver`.
 
-    :param tag:
-    :return:
+    Todo:
+        Migrate version control logic to :py:func:`release_tag`
+
     """
 
     answer = prompt('Did you remember to first commit all changes??', default='no', )
@@ -113,11 +159,12 @@ def ci(tag: str) -> None:
 
 @task
 def build(live: bool = False) -> None:
+    """High level function to build webapp
+
+    Warnings:
+        **Deprecated**: See :py:func:`deploy_runtime`.
     """
-    DEPRECTED: See deploy_runtime
-    :param live:
-    :return:
-    """
+
     execute('git pull', live=live)
     with prefix('export UID'):
         compose('up static_builder', live=live)
@@ -132,11 +179,10 @@ def build(live: bool = False) -> None:
 
 @task
 def build_code(live: bool = False, migrate: bool = False) -> None:
-    """DEPRECATED, please see build_runtime
+    """High level function to build runtime
 
-    :param live:
-    :param migrate:
-    :return:
+    Warnings:
+        **Deprecated**: See :py:func:`build_runtime`.
     """
     execute('git pull', live=live)
     execute("rsync -avz --exclude-from 'etc/exclude-list.txt' ./src/ etc/webapp/build/", live=live)
@@ -152,14 +198,16 @@ def build_code(live: bool = False, migrate: bool = False) -> None:
 
 @task
 def release_runtime(tag: str = 'latest') -> None:
-    """
-    Rebuilds the docker container for the python runtime and push a tag image to to DockerHub.
-    Does not affect current running webapp
+    """Rebuilds the docker container for the python runtime and push a tag image to to DockerHub.
 
-    This task is safe, it does not affect the production runtime!
+    Note:
+        Does not affect current running webapp. This task is safe, it does not affect the production runtime!
 
-    :param tag: Name of release, preferably a SemVer version number
-    :return:
+    Args:
+        tag: Name of release, preferably a SemVer version number
+
+    Returns:
+        None
     """
 
     make_wheels()
@@ -177,13 +225,14 @@ def release_runtime(tag: str = 'latest') -> None:
 
 @task
 def release_code(tag: str = 'latest') -> None:
-    """
-    Commits, tags and pushes tag to GitHub
+    """Commits, tags and pushes tag to GitHub
 
-    This task is safe, it does not affect the production runtime!
+    Note:
+        This task is safe, it does not affect the production runtime!
 
-    :param tag: Name of release, preferably a SemVer version number
-    :return:
+    Args:
+        tag: Name of release, preferably a SemVer version number
+
     """
     # TODO: Replace with actually checking for clean tree
     answer = prompt('Did you remember to first commit all changes??', default='no', )
@@ -200,13 +249,20 @@ def release_code(tag: str = 'latest') -> None:
 
 @task
 def release_data(tag: str = 'latest') -> None:
-    """
-    Backup and upload tagged version of database
+    """Backup and upload tagged version of database
 
-    This task is safe, it does not affect the production runtime!
+    Note:
+        This task is safe, it does not affect the production runtime!
 
-    :param tag: Name of release, preferably a SemVer version number
-    :return:
+    Args:
+        tag: Name of release, preferably a SemVer version number
+
+    Returns:
+        None
+
+    Todo:
+        * Implement S3(?) database/fixture/view storage
+        * Implement cloud storage for media + static files
     """
     # TODO: Implement S3(?) database/fixture/view storage
     # TODO: Implement cloud storage for media + static files
@@ -217,11 +273,14 @@ def release_data(tag: str = 'latest') -> None:
 
 @task
 def release_tag(tag: str = 'latest') -> None:
-    """
-    Convenience task that release a named version of the runtime, code and data
+    """Convenience task that release a named version of the runtime, code and data
 
-    :param tag: Name of release, preferably a SemVer version number
-    :return:
+    Args:
+        tag: Name of release, preferably a SemVer version number
+
+    Returns:
+        None
+
     """
     answer = prompt('Did you make changes the database?', default='no', )
     if answer == 'yes':
@@ -243,13 +302,11 @@ def release_tag(tag: str = 'latest') -> None:
 
 @task
 def build_runtime(tag: str = 'latest', instance: str = 'production', image_name: str = None, live: bool = True) -> None:
-    """
-    Builds the production runtime
+    """Builds the production runtime
 
     This task is safe, it does not affect the running instance!
     The next restart, however, might change the runtime.
 
-    :return:
     """
     if not isinstance(live, bool):
         live = bool(strtobool(live))
@@ -291,18 +348,18 @@ def deploy_runtime(tag: str = 'latest', instance: str = 'production', first: boo
     This function is not safe and requires a database
     backup before running!
 
-    Tag: the general version of the image name, e.g organization/project:tag
+    Args:
+        tag: the general version of the image name, e.g organization/project:tag
             this is the base image, it contains the necessary runtime,
             but not the code and runs as root user.
-
-    Instance: this is the specific instance of the runtime that is being used and
-            contains everything necassaty to run an immutable server.
+        instance: this is the specific instance of the runtime that is being used and
+            contains everything necessary to run an immutable server.
             E.g. organization/project:tag-instance
             (where instance can be production, alpha, beta, or a1, a2 etc). This container also runs
-            as the restricted 'webapp' user. This is usefull for rapid development where the runtime
-            does not necesarily change, but the code is updated. Default is production.
+            as the restricted 'webapp' user. This is useful for rapid development where the runtime
+            does not necessarily change, but the code is updated. Default is production.
+        first: First initialise (git clone, etc) the webapp before updating and deploying it.
 
-    :return:
     """
 
     env.image_tag = '{tag}-{instance}'.format(tag=tag, instance=instance)
@@ -336,13 +393,17 @@ def deploy_runtime(tag: str = 'latest', instance: str = 'production', first: boo
 
 @task
 def deliver(tag: str = 'latest', instance: str = 'production', image_name: str = None, first: bool = False) -> None:
-    """
+    """From build to deploy!
 
-    :param instance:
-    :param tag:
-    :param image_name:
-    :param first:
-    :return:
+    Main task for delivering a new task to the server.
+
+    Args:
+        tag: Preferably a SemVer version number, e.g. 1.2.10.
+            Used to identify the git tag, docker tag and database backup tag.
+        instance: Distinguishes the final immutable image from the base image. e.g. 1.2.10-production.
+        image_name: Used to override the image_name retrieved from the env dict.
+        first: Initialize the project if True, otherwise update it.
+
     """
     release_tag(tag=tag)
 
@@ -357,9 +418,14 @@ def deliver(tag: str = 'latest', instance: str = 'production', image_name: str =
 
 @task
 def create_github_repo():
-    """
-    WIP. Needed for when dstack tasks is standalone invoke tool to manage full workflow
-    :return:
+    """ Needed for when dstack tasks is standalone invoke tool to manage full workflow
+
+    Warning:
+        Work in progress.
+
+    Returns:
+        None
+
     """
     # TODO: Make this work!
     import requests
@@ -369,10 +435,14 @@ def create_github_repo():
 
 @task
 def copy_envs(env_path: str = '.local'):
-    """ Copy over config files required by docker-compose containers
+    """Copy over config files required by docker-compose containers
 
-    :param env_path:
-    :return:
+    Args:
+        env_path:
+
+    Returns:
+        None
+
     """
     filer('put', local_path='{path}/*.env'.format(path=env_path), remote_path='/srv/apps/{project}/{path}/'.format(
         project=env.project_name, path=env_path))
@@ -380,12 +450,20 @@ def copy_envs(env_path: str = '.local'):
 
 @task
 def init_deploy(org: str, ssh: bool = False):
-    """
-    Task to deploy app to server for first time.
+    """Task for initialising webapps deployed for the first time.
 
-    TODO: make distinction between project name and GitHub name. Also allow other git repos/hosts
-    :return:
+    Args:
+        org: The organisation name, used in constructing the docker tag
+        ssh: Use ssh style GitHub cloning if True, https style if False
+
+    Returns:
+        None
+
+    Todo:
+        Make distinction between project name and GitHub name. Also allow other git repos/hosts
+
     """
+
     if org:
         env.organisation = org
 

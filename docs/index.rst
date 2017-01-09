@@ -1,7 +1,5 @@
-.. Django FactBook documentation master file, created by
-   sphinx-quickstart on Sun May 22 17:34:01 2016.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. dstack-tasks documentation
+
 
 Welcome to DStack Tasks' documentation!
 =======================================
@@ -9,10 +7,11 @@ Welcome to DStack Tasks' documentation!
 Contents:
 
 .. toctree::
-   :maxdepth: 2
+    :maxdepth: 2
 
-   contributing
-   modules/models
+    contributing
+    modules/api
+    notes
 
 ========
 Overview
@@ -20,7 +19,6 @@ Overview
 
 Part of the DStack project. This package provides the utilities and tasks that make it easier to
 develop, build and deploy dockerized Django apps.
-
 
 Quick start
 -----------
@@ -37,6 +35,9 @@ Quick start
 3. Run the doctor task to check if everything is okay::
 
     fab doctor
+
+    # Or test a command without executing it:
+    fab e dry manage
 
 4. Create a project.yml and/or .env file to configure your tasks::
 
@@ -56,11 +57,9 @@ Quick start
 
 5. Happy coding :-)
 
-
 Indices and tables
 ==================
 
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-

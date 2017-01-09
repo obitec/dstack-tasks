@@ -18,13 +18,11 @@ from .deploy import (
     build_code, init_deploy, copy_envs, deliver)
 
 # Config setup related
-from .tasks import e, fabric_setup, local_setup, remote_setup, postgres_everywhere
+from .tasks import e, fabric_setup, local_setup, remote_setup, configure_hosts
 
 # Untested
 from .tasks import (
-    backup_basics, clean_unused_volumes,
-    sqlite_reset, reset_local_postgres, restore_latest_postgres,
-    translate, datr, container_reset)
+    backup_basics, _clean_unused_volumes, sqlite_reset, translate, datr, container_reset)
 
 # Local
 from .local import init
