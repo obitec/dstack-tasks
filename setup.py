@@ -23,11 +23,11 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    use_scm_version={
-         'write_to': 'version.txt',
-    },
+    # use_scm_version={
+    #      'write_to': 'version.txt',
+    # },
     # version=version_string,
-    # version='1.0.6',
+    version='2.3.0',
 
     description=(
         "CLI that accompanies dstack-tasks make it easy to build and deploy application. "
@@ -40,7 +40,7 @@ setup(
 
     # Author details
     author='JR Minnaar',
-    author_email='jr.minnaar+dstack@gmail.com',
+    author_email='jr.minnaar+pypi@gmail.com',
 
     # Choose your license
     license='MIT License',
@@ -72,6 +72,7 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
     ],
 
     # What does your project relate to?
@@ -105,8 +106,9 @@ setup(
         'boto3',
         'invoke',
         'fabric>=2.0.0',
-        'python-dotenv>=0.5.1',
+        'python-dotenv',
         'requests',
+        'colorama',
     ],
 
     # List additional groups of dependencies here (e.g. development
@@ -116,13 +118,9 @@ setup(
     extras_require={
         'dev': [
             'twine'
-            'setuptools_scm',
-            'invoke>=0.13.0',
             'Sphinx>=1.4.1',
             'wheel>=0.29.0',
-            'python-dotenv>=0.5.1',
         ],
-        'test': ['coverage'],
     },
 
     # test_suite='nose.collector',

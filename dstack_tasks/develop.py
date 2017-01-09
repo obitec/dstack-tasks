@@ -14,20 +14,20 @@ def make_docs(ctx):
 
 @task
 def clean(ctx, docs=False, venv=False, extra=''):
-    patterns = ['build', '*.egg-info', 'dist']
+    patterns = ['build/', '*.egg-info/', 'dist/']
     if docs:
         patterns.append('docs/_build')
     if venv:
-        patterns.append('venv')
+        patterns.append('venv/')
     if extra:
         patterns.append(extra)
     for pattern in patterns:
         do(ctx, f'rm -rf {pattern}')
 
 
-@task
+@task(pre=[clean])
 def build(ctx, docs=False):
-    do(ctx, "python setup.py sdist bdist_wheel")
+    do(ctx, "python setup.py bdist_wheel")
     if docs:
         do(ctx, "sphinx-build docs docs/_build")
 

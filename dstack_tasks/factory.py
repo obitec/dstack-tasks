@@ -4,16 +4,16 @@ import os
 import colorama
 from invoke import task
 
-from dstack_python.base import do, env
-from dstack_python.utils import dirify
-from dstack_python.wrap import filer, s3cmd, compose, docker
+from .base import do, env
+from .utils import dirify
+from .wrap import compose, docker, filer, s3cmd
 
 colorama.init()
 
 
 @task
 def make_wheels(ctx, use_package=None, use_recipe=None, clear_wheels=True,
-                interactive=True, py_version='3.6', c_ext=True):
+                interactive=True, py_version='3.6', c_ext=True, factory_path=None):
     """Build wheels for python packages
 
     Creates wheel package for each dependency specified in build-reqs.txt (if it exists) else
@@ -42,6 +42,7 @@ def make_wheels(ctx, use_package=None, use_recipe=None, clear_wheels=True,
             to first upload your wheel package.
         py_version: Default = 3.5. Python 3.6 is also supported.
         c_ext: Default = True. Whether to build cython and numpy before rest of dependencies.
+        factory_path: Need to specify the path
 
     See also:
         :py:func:`make_default_webapp` Uses these wheels to create a docker runtime with only the minimal
@@ -62,11 +63,11 @@ def make_wheels(ctx, use_package=None, use_recipe=None, clear_wheels=True,
     Note:
         This task can be run on a different server that the one being deployed to by supplying the ``hosts``
         command line argument, e.g.:
-        fab e dry make_wheels:hosts=factory.obitec.co
+        fab -H factory.example.com e dry make-wheels
 
         If you've got custom python dependencies, e.g. django-factbook, that has not yet been published to pip,
          just make sure to run make_wheels with `use_recipe=True` to first build build-req.txt dependencies
-         containing the source url for custom pacakges.
+         containing the source url for custom packages.
          This will archive a wheel package for that dependency on dstack-factories archive and will be retrieved
          for the subsequent `package_build`.
 
@@ -76,7 +77,7 @@ def make_wheels(ctx, use_package=None, use_recipe=None, clear_wheels=True,
     tag = env.tag
 
     # Set the defaults
-    build_directory = dirify('/srv/build/', force_posix=True)
+    build_directory = dirify(factory_path, force_posix=True)
     recipe_filename = 'requirements'
 
     # If neither parameters are given, use defaults for both (same as specifying True for both)
@@ -115,10 +116,10 @@ def make_wheels(ctx, use_package=None, use_recipe=None, clear_wheels=True,
     # asks you if you've uploaded the file to the archive. This is because when dstack-factory builds wheels it checks
     # for existing wheels in archive before downloading from pip or other source.
     elif use_package and not use_recipe:
-        # TODO: Also add support for s3cmd hosted .whl files, e.g. s3cmd://dstack-storage/django-1.10.3-py3-none-any.whl
+        # TODO: Also add support for s3cmd hosted .whl files, e.g. s3cmd://{bucket_name}/{wheel_file}.whl
         # print(use_package[-4:])
         if use_package[-4:] == '.whl':
-            # e.g. make_wheels(use_package='django-1.10.3-py3-none-any.whl')
+            # e.g. make_wheels(use_package='{package}-{version}-py3-none-any.whl')
             if interactive:
                 answer = input('Did you remember to upload wheel package to dstack-factory archive?')
             else:
@@ -175,61 +176,58 @@ def make_wheels(ctx, use_package=None, use_recipe=None, clear_wheels=True,
 
 
 @task
-def release_runtime(ctx, build_wheels=True, build_image=True, tag=None):
+def release_runtime(ctx, build_wheels=True, build_image=True, tag=None, factory_host=None, factory_path=None):
     """
 
     Args:
-        ctx: 
-        build_wheels: 
-        build_image: 
-        tag: 
-    
+        ctx:
+        build_wheels:
+        build_image:
+        tag:
+        factory_host:
+        factory_path:
+
     """
     # TODO: Indicate that this task must be run with a host configured
     # TODO: Make wheel-factory configurable
-    factory_host = 'gauseng.apps'
     tag = tag or ctx.tag
 
     if build_wheels:
         # Stage 0: Clear the wheelfiles
-        do(ctx, cmd='rm -rf *.whl', path='/srv/build/wheelhouse')
+        do(ctx, cmd='rm -rf *.whl', path=f'{factory_path}/wheelhouse')
 
         # TODO: Get from environment
         project_name = os.path.basename(os.getcwd()).replace('-', '_')
         s3cmd(ctx,
               s3_path=f'{project_name}/dist/{project_name}-{tag}-py3-none-any.whl',
-              local_path='/srv/build/wheelhouse/',
+              local_path=f'{factory_path}/wheelhouse/',
               direction='down',
               project_name=project_name)
 
         # Stage 1: build-reqs.txt
-        # scp build-reqs.txt gauseng.apps:/srv/build/recipes/toolset-0.18.4.txt
-        # scp "toolset==0.18.4" gauseng.apps:/srv/build/recipes/requirements.txt
+        # scp build-reqs.txt {factory_host}:{factory_path}/recipes/{project_name}-{version}.txt
+        # scp "{project_name}=={version}" {factory_host}:{factory_path}/recipes/requirements.txt
         # BUILD WHEELS
-        do(ctx, cmd=f'scp build-reqs.txt {factory_host}:/srv/build/recipes/{project_name}-{tag}.txt', local=True)
+        do(ctx, cmd=f'scp build-reqs.txt {factory_host}:{factory_path}/recipes/{project_name}-{tag}.txt', local=True)
 
-        compose(ctx, cmd='run --rm factory', path='/srv/build',
+        compose(ctx, cmd='run --rm factory', path=factory_path,
                 env={'RECIPE': f'{project_name}-{tag}', 'PY_VERSION': '3.6', 'CEXT': 'True'})
 
         # Stage 2: Upload wheel file and build from there
-        # aws s3 cp s3://dstack-storage/toolset/dist/toolset-0.18.4-py3-none-any.whl /srv/build/archive/
-        # scp "amqp==2.1.4 ...." gauseng.apps:/srv/build/requirements.txt
+        # aws s3 cp s3://{bucket_name}/app/dist/{project_name}-{version}-py3-none-any.whl {factory_path}/archive/
+        # scp "package==version ...." {factory_host}:{factory_path}/requirements.txt
         # BUILD WHEELS
-        # compose(ctx, cmd='run --rm factory', path='/srv/build',
+        # compose(ctx, cmd='run --rm factory', path='{factory_path}',
         #         env={'RECIPE': 'requirements.txt', 'PY_VERSION': 3.6, 'CEXT': True})
-        # do(ctx, cmd=f'echo toolset-{ctx.tag} > /srv/build/recipes/requirements.txt')
+        # do(ctx, cmd=f'echo toolset-{ctx.tag} > {factory_path}/recipes/requirements.txt')
         #
-        # compose(ctx, cmd='run --rm factory', path='/srv/build',
+        # compose(ctx, cmd='run --rm factory', path='{factory_path}',
         #         env={'RECIPE': f'requirements', 'PY_VERSION': 3.6, 'CEXT': True})
 
     if build_image:
-        # Stage 3:
-        # Build docker image and install all the wheel in the directory.
-        # docker build -f Dockerfile-wheel -t obitec/ngkdb:2.0.4 .
+        # Stage 3: Build docker image and install all the wheel in the directory.
         docker_tag = f'{ctx.organisation}/{ctx.project_name}'
-        docker(ctx, cmd=f'build -f Dockerfile-wheel -t {docker_tag}:{tag} .', path='/srv/build')
-        # docker tag obitec/ngkdb:2.0.4 obitec/ngkdb:latest
+        docker(ctx, cmd=f'build -f Dockerfile-wheel -t {docker_tag}:{tag} .', path=factory_path)
         docker(ctx, cmd=f'tag {docker_tag}:{tag} {docker_tag}:latest')
-        # docker push obitec/ngkdb:latest
         docker(ctx, cmd=f'push {docker_tag}:{tag}')
         docker(ctx, cmd=f'push {docker_tag}:latest')

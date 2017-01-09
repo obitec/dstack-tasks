@@ -1,5 +1,3 @@
-import os
-
 from typing import Callable, Iterable, Mapping
 
 
@@ -87,3 +85,15 @@ def check_keys(collection: Mapping, keys: Iterable) -> bool:
             raise Exception('Improperly configured! Key: "' + var + '" not set.')
 
     return True
+
+
+def find_and_replace(file_path, find_str, replace_str, count):
+    with open(file_path, 'r') as file:
+        file_data = file.read()
+
+    # Replace the target string
+    file_data = file_data.replace(find_str, replace_str, count=count)
+
+    # Write the file out again
+    with open(file_path, 'w') as file:
+        file.write(file_data)
