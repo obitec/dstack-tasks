@@ -11,9 +11,20 @@ def echo() -> dict:
 
     """
     from pprint import pprint
-    show_envs = ['project_name', 'project_dir', 'project_path',
-                 'release_tag', 'server_dotenv_path', 'local_dotenv_path',
-                 'virtual_env', 'virtual_host', 'image_name', 'image_tag']
+    show_envs = [
+        'pwd',
+        'project_name',
+        'project_dir',
+        'server_dotenv_path',
+        'local_dotenv_path',
+        'venv_name',
+        'venv_type',
+        'virtual_host',
+        'image_name',
+        'tag',
+        'organisation',
+        'git_repo',
+    ]
 
     custom_envs = {your_key: env[your_key] for your_key in show_envs}
     pprint(custom_envs)

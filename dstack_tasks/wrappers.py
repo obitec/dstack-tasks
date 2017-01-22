@@ -9,25 +9,23 @@ TODO:
     instead of ``.module.function`` where applicable.
 
 """
-import importlib
 import logging
 import os
 import posixpath
 from distutils.util import strtobool
 from pathlib import Path
 
-from fabric.colors import green, yellow, red
+from fabric.colors import green, red, yellow
 from fabric.context_managers import cd, prefix
 from fabric.decorators import task
-from fabric.operations import run, local, get, put, prompt
+from fabric.operations import local, run, get, put, prompt
 from fabric.state import env
-from fabric.tasks import execute as fab_exec
 
 from .utils import check_keys
 
 
 @task
-def dotenv(action: str = None, key: str = None, value: str = None, live: bool = False) -> None:
+def dotenv(action: str = None, key: str = None, value: str = None, live: bool = None) -> None:
     """Manage project configuration via .env
 
     e.g: fab config:set,<key>,<value>
@@ -35,6 +33,9 @@ def dotenv(action: str = None, key: str = None, value: str = None, live: bool = 
          fab config:unset,<key>
          fab config:list
     """
+    if live is None:
+        live = env.live
+
     if live:
         dot_path = env.server_dotenv_path
     else:
@@ -65,7 +66,7 @@ def dotenv(action: str = None, key: str = None, value: str = None, live: bool = 
 
 
 @task
-def execute(cmd: str = '--help', path: str = None, live: bool = False, **kwargs):
+def execute(cmd: str = '--help', path: str = None, live: bool = None, **kwargs):
     """ Wrapper for both local and remote tasks optionally setting the execution path.
 
     Args:
@@ -75,42 +76,45 @@ def execute(cmd: str = '--help', path: str = None, live: bool = False, **kwargs)
         **kwargs:
 
     """
-
-    if not isinstance(live, bool):
-        live = bool(strtobool(live))
+    if live is None:
+        live = env.live
 
     if path is None:
         path = env.project_dir if live else ''
-    # print(path)
+
     with cd(path):
         env.pwd = path
         run(cmd, **kwargs) if live else local(cmd, **kwargs)
 
 
 @task
-def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: bool = False) -> None:
+def compose(cmd: str = '--help', instance: str = None, path: str = None, live: bool = None) -> None:
     """docker-compose wrapper
 
     Args:
         cmd: Command
-        image_tag: Image tag
+        instance: Image tag
         path: path
-        live: Live or local.
+        live: live
 
     """
-    if not isinstance(live, bool):
-        live = bool(strtobool(live))
+    check_keys(env, ['image_name', 'tag'])
 
-    env.image_tag = image_tag or env.image_tag
-    check_keys(env, ['image_name', 'image_tag'])
+    if live is None:
+        live = env.live
+
+    # Update tag with instance. Note that env.version does not change
+    if instance:
+        env.tag = '{tag}-{instance}'.format(tag=env.tag, instance=instance)
 
     base_cmd = '{env_vars}docker-compose {cmd}'
     template = {
-        'posix': 'export UID; IMAGE={image_name}:{image_tag} ',
-        'nt': 'set PWD=%cd%&& set IMAGE={image_name}:{image_tag} && ',
+        'posix': 'export UID; IMAGE={image_name}:{tag} ',
+        'nt': 'set PWD=%cd%&& set IMAGE={image_name}:{tag} && ',
     }
 
-    cmd_string = base_cmd.format(env_vars=template[os.name if not live else 'posix'].format(**env), cmd=cmd)
+    cmd_string = base_cmd.format(
+        env_vars=template[os.name if not env.live else 'posix'].format(**env), cmd=cmd)
 
     try:
         execute(cmd=cmd_string, path=path, live=live)
@@ -119,7 +123,7 @@ def compose(cmd: str = '--help', image_tag: str = None, path: str = None, live: 
 
 
 @task
-def docker(cmd: str = '--help', path: str = None, live: bool = False) -> None:
+def docker(cmd: str = '--help', path: str = None, live: bool = None) -> None:
     """Task wrapping docker
 
     Args:
@@ -129,6 +133,9 @@ def docker(cmd: str = '--help', path: str = None, live: bool = False) -> None:
         live:
 
     """
+    if live is None:
+        live = env.live
+
     if path is None:
         path = ''
         # path = env.get('project_dir', '')
@@ -137,25 +144,23 @@ def docker(cmd: str = '--help', path: str = None, live: bool = False) -> None:
 
 
 @task
-def manage(cmd: str = 'help', live: bool = False, package: bool = False) -> None:
+def manage(cmd: str = 'help', live: bool = None) -> None:
     """Task wrapping python src/manage.py
 
     Args:
-        package: whether manage.py is in a folder named after the package or under ``src``
         cmd: The manage.py command to run.
         live:
 
     """
+    if live is None:
+        live = env.live
+
     if live:
         # TODO: Make _staging generic or apply to others as well
-        compose('run --rm webapp bash -c "python manage.py {cmd}"'.format(cmd=cmd), live=True)
+        compose('run --rm webapp bash -c "python manage.py {cmd}"'.format(cmd=cmd), live=live)
     else:
-        # TODO: remove hardcoded src, replace with project name
         with prefix(env.activate):
-            if not package:
-                local('python src/manage.py {cmd}'.format(cmd=cmd))
-            else:
-                local('python {project_name}/manage.py {cmd}'.format(cmd=cmd, project_name=env.project_name))
+            local('python {package}/manage.py {cmd}'.format(cmd=cmd, package=env.src))
 
 
 @task
@@ -215,7 +220,7 @@ def filer(cmd: str = 'get',
 
 
 @task
-def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_prompt: bool = False):
+def postgres(cmd: str = 'backup', live: bool = None, tag: str = 'tmp', sync_prompt: bool = False):
     """Task for backup and restore of postgres database
 
     Args:
@@ -230,8 +235,8 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
         * It also needs to be generalized to allow MySQL backups and syncing to S3 (or other storage)
 
     """
-    if not isinstance(live, bool):
-        live = bool(strtobool(live))
+    if live is None:
+        live = env.live
 
     backup_name = 'db_backup.{tag}.tar.gz'.format(tag=tag)
 
@@ -245,7 +250,7 @@ def postgres(cmd: str = 'backup', live: bool = False, tag: str = 'tmp', sync_pro
     if live:
         backup_to_path = posixpath.join(env.project_dir, 'var/backups')
     else:
-        backup_to_path = os.path.join(env.project_path, 'var/backups')
+        backup_to_path = os.path.join(env.pwd, 'var/backups')
         if os.name == 'nt':
             backup_to_path = posixpath.join('/c/', Path(backup_to_path).as_posix()[3:])
 
@@ -311,7 +316,7 @@ def npm(package: str = 'install'):
 
 
 @task
-def git(cmd: str = '--help', path: str = None, live: bool = False):
+def git(cmd: str = '--help', path: str = None, live: bool = None):
     """Task wrapping git.
 
     Args:
@@ -322,11 +327,14 @@ def git(cmd: str = '--help', path: str = None, live: bool = False):
     Returns:
 
     """
+    if live is None:
+        live = env.live
+
     execute('git {cmd}'.format(cmd=cmd), live=live, path=path)
 
 
 @task
-def s3(cmd: str = 'help') -> None:
+def s3(cmd: str = 'help', live: bool = None) -> None:
     """Task wrapping the "aws s3" interface.
 
     Note:
@@ -334,14 +342,17 @@ def s3(cmd: str = 'help') -> None:
 
     Args:
         cmd: The aws s3 command to run.
+        live: run os server or local
     """
+    if live is None:
+        live = env.live
 
     # TODO: Raise error if awscli is not installed
-    execute('aws s3 {cmd}'.format(**locals()))
+    execute('aws s3 {cmd}'.format(cmd=cmd, live=live))
 
 
 @task
-def docker_exec(service='postgres', cmd: str = 'bash', live: bool = False):
+def docker_exec(service='postgres', cmd: str = 'bash', live: bool = None):
     """Function that wraps the docker exec interface.
     This task reduces the amount of boiler plate needed to execute tasks in docker containers
     spawned by docker-compose.
@@ -351,22 +362,24 @@ def docker_exec(service='postgres', cmd: str = 'bash', live: bool = False):
         service: typically the name of the project with spaces, underscores, etc removed.
            E.g. project_name becomes projectname.
         cmd: The command to be executed in the docker container.
-        live:
+        live: live
 
     Returns:
+        None
 
     """
-    env.service = service
-    env.cmd = cmd
-    docker(cmd='exec -it {project_name}_{service}_1 {cmd}'.format(**env), live=live)
+    if live is None:
+        live = env.live
+
+    docker(cmd='exec -it {project_name}_{service}_1 {cmd}'.format(
+        service=service, cmd=cmd, project_name=env.project_name), live=live)
 
 
 @task
-def loaddata(live: bool = False, app: str = 'config', file_name='initial_data', extension: str = 'json'):
+def loaddata(app: str = 'config', file_name='initial_data', extension: str = 'json'):
     """
 
     Args:
-        live:
         app: which app
         file_name: Defaults to initial_data.
         extension: Default is json. Yaml is also supported if PyYaml is installed.
@@ -374,9 +387,9 @@ def loaddata(live: bool = False, app: str = 'config', file_name='initial_data', 
     Returns:
 
     """
-    manage('migrate', live=live)
-    path = 'src/' if not live else ''
-    manage('loaddata {path}{app}/fixtures/{file_name}.{extension}'.format(**locals()), live=live)
+    manage('migrate')
+    path = 'src/' if not env.live else ''
+    manage('loaddata {path}{app}/fixtures/{file_name}.{extension}'.format(**locals()))
 
 
 @task
@@ -400,10 +413,10 @@ def dry(dry_run: bool = True) -> None:
 
         def get(remote_path, local_path=None, use_sudo=False, temp_dir=""):
             host = env.host_string
-            print(green('(dry) '), red('[{}] '.format(host)),
+            print(green('(dry) '), yellow('[localhost] '),
                   'scp {host}:{remote_path} {local_path}'.format(**locals()), sep='')
 
         def put(remote_path, local_path=None, use_sudo=False, temp_dir=""):
             host = env.host_string
-            print(green('(dry) '), red('[{}] '.format(host)),
+            print(green('(dry) '),  yellow('[localhost] '),
                   'scp {local_path} {host}:{remote_path}'.format(**locals()), sep='')

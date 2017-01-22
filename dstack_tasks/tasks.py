@@ -2,67 +2,45 @@ import logging
 import os
 import posixpath
 from distutils.util import strtobool
+from os import getenv
 
-from fabric.api import env, local, run, settings, put, prompt, task
+from dotenv import load_dotenv
+from fabric.api import env, local, prompt, put, run, settings, task
 from fabric.colors import green
 from fabric.contrib.project import rsync_project
+from setuptools_scm import get_version
 
-from dstack_tasks.utils import activate_venv
-from dstack_tasks.wrappers import compose, manage, filer, postgres, execute
+from dstack_tasks.wrappers import compose, execute, filer, manage, postgres
 
+# Global config
+env.use_ssh_config = True
+env.log_level = logging.INFO
+# env.pwd = local("pwd", capture=True)
+env.pwd = os.getcwd()
+env.src = os.path.join(env.pwd, 'src')
+env.dir = os.path.basename(env.pwd)
+env.live = False
+env.dry = False
 
-def fabric_setup() -> None:
-    """Configure Fabric
-
-    """
-    # Global config
-    env.use_ssh_config = True
-    env.log_level = logging.INFO
-    env.pwd = local("pwd", capture=True)
-
-
-def local_setup(collection: str = '') -> None:
-    """Configure local paths and settings
-
-    Will also load .env files and <collection>.env files
-    if python-dotenv is installed. <collection.env> files are stored in
-    the project root under the .local folder and should not be checked into version control.
-
-    Args:
-        collection: The <collection>.env file that should be loaded before a task is executed.
-
-    """
-    # Local paths
-    # env.project_path = os.path.dirname(os.path.dirname(__file__))
-    env.local_dotenv_path = os.path.join(env.project_path, '.env')
-
-    # Node config
-    env.node_modules_prefix = 'bin'
-    env.node_modules = os.path.join(
-        env.project_path, env.node_modules_prefix, '/node_modules/.bin/')
-
+# Attempt to get a version number
+try:
+    # env.version = get_version(root='.', relative_to=env.pwd)
+    env.version = get_version()
+except LookupError:
     try:
-        from dotenv import load_dotenv
-    except ImportError:
-        def load_dotenv(path: str = None):
-            print('Did not load: ' + path)
-            if env.log_level <= logging.INFO:
-                print('Python-dotenv must be installed to load .env files:')
-                print('pip install -U python-dotenv')
+        with open(os.path.join(env.src, 'version.txt')) as f:
+            env.version = f.readline().strip()
+    except FileNotFoundError:
+        env.version = getenv('VERSION', '0.0.0-dev')
 
-    # Read collection .env overrides
-    if collection:
-        load_dotenv(os.path.join(env.project_path, '.local', collection + '.env'))
-
-    # Read local .env
-    load_dotenv(env.local_dotenv_path)
+env.tag = env.version
 
 
-def remote_setup(project_name: str) -> None:
-    """ Configure the project paths based on project_name
+def remote_setup(hostname: str = None) -> None:
+    """ Configures the project paths based on project_name
 
     Args:
-        project_name: The name of the project
+        hostname: The name of the host as defined in .ssh/config
 
     """
 
@@ -72,22 +50,23 @@ def remote_setup(project_name: str) -> None:
         'apps': '/srv/apps',
 
         'volumes': {
-            'postgres': {
-                'data': '/var/lib/postgresql/data',
-            }
+            'postgres_data': '/var/lib/postgresql/data',
         }
     }
     env.build_dir = path_config['build']
-    env.project_dir = posixpath.join(path_config['apps'], project_name)
+    env.project_dir = posixpath.join(path_config['apps'], env.project_name)
     env.server_dotenv_path = posixpath.join(env.project_dir, '.env')
-    env.postgres_data = path_config['volumes']['postgres']['data']
+    env.postgres_data = path_config['volumes']['postgres_data']
 
     # Configure deployment
-    env.virtual_host = os.environ.get('VIRTUAL_HOST', project_name)
+    env.virtual_host = getenv('VIRTUAL_HOST', env.project_name)
+
+    # Try to get the host_name
+    env.hosts = [getenv('HOST_NAME', hostname), ]
 
 
 @task
-def e(collection: str = '', tag: str = 'latest') -> None:
+def e(collection: str = None, tag: str = None, live: bool = False) -> None:
     """Set environment
 
     Optionally run before other task to configure environment
@@ -97,8 +76,8 @@ def e(collection: str = '', tag: str = 'latest') -> None:
     Args:
         collection: Used to specify a local collection of env settings.
             Useful when having different setups like staging/production/etc
-
         tag: The tag, preferably a SemVer version compatible string.
+        live: Whether to run the command locally or on the server
 
     Returns:
         The tag supplied
@@ -106,49 +85,63 @@ def e(collection: str = '', tag: str = 'latest') -> None:
     Examples:
         fab e:tag=v1.0.0 echo  # outputs the env with updated tag
 
+    Configure local paths and settings
+
+    Will also load .env files and <collection>.env files
+    if python-dotenv is installed. <collection.env> files are stored in
+    the project root under the .local folder and should not be checked into version control.
+
+    Args:
+        collection: The <collection>.env file that should be loaded before a task is executed.
+
     """
+    if not isinstance(live, bool):
+        live = bool(strtobool(live))
 
-    fabric_setup()
+    # Read collection.env overrides and then main local .env
+    # because load_dotenv does not override env variables
+    env.local_dotenv_path = os.path.join(env.pwd, '.env')
+    if collection:
+        load_dotenv(os.path.join(env.pwd, '.local', collection + '.env'))
+    load_dotenv(env.local_dotenv_path)
 
-    # Read the project config defaults file
-    with open("project.yml", 'r') as stream:
-        try:
-            import yaml
-        except ImportError:
-            yaml = 'Module not fount, pleas install Pyyaml'
-        try:
-            config = yaml.safe_load(stream)
-            env.project_name = config['project']['name']
-            env.virtual_env = config['development']['conda_environment']
-            env.release_tag = config['project']['version']
-            env.image_tag = config['project']['version']
-            env.image_name = config['deployment']['docker_image_name']
-            env.organisation = config['project']['organisation']
-            env.git_repo = config['project']['git_repo']
-            env.wheel_factory = config['wheel_factory']['hostname']
+    env.update({
+        'tag': tag or env.tag,  # Allows working with a specific version to e.g. backup a database
+        'live': live,
+        'src': getenv('SOURCE_DIR', env.src),
 
-        except yaml.YAMLError as exc:
-            print(exc)
+        'project_name': getenv('PROJECT_NAME', env.dir),
+        'organisation': getenv('ORGANISATION', ''),
+        'git_repo': getenv('GIT_REPO', ''),
+        'venv_name': getenv('VENV_NAME', ''),
+        'venv_type': getenv('VENV_TYPE', 'conda'),
+        'image_name': getenv('IMAGE_NAME', env.dir),
 
-    local_setup(collection=collection)
-    # print(os.environ.get('PROJECT_NAME'))
+        'node_modules_prefix': getenv('NODE_PREFIX', '.local'),
+    })
 
-    env.project_name = os.environ.get('PROJECT_NAME', env.project_name)
-    env.virtual_env = os.environ.get('VIRTUAL_ENV', env.virtual_env)
-    env.image_name = os.environ.get('IMAGE_NAME', env.image_name)
-    env.image_tag = os.environ.get('RELEASE_TAG', env.image_tag)
+    # Guess the virtual env
+    env.venv_name = env.venv_name or env.project_name if env.venv_type == 'conda' else 'venv'
 
-    # env.image_tag = collection if collection else 'latest'
+    # path to node modules
+    env.node_modules = os.path.join(env.pwd, env.node_modules_prefix, '/node_modules/.bin/')
 
-    # print(env.image_name, env.image_tag)
+    # template for activating the python virtual environment
+    activate = {
+        'conda': {
+            'posix': 'source activate {venv}',  # $ source activate <venv>
+            'nt': 'activate {venv}'  # C:\> activate <venv>
+        },
+        'pip': {
+            'posix': 'source {venv}/bin/activate',  # $ source <venv>/bin/activate
+            'nt': r'{venv}\Scripts\activate.bat',  # C:\> <venv>\\Scripts\\activate.bat
+            # PS C:\> <venv>\\Scripts\\Activate.ps1
+        }
+    }
+    env.activate = activate[env.venv_type][os.name].format(venv=env.venv_name)
 
-    activate_venv(env=env, style='conda', venv=env.virtual_env)
-    remote_setup(env.project_name)
-
-    # Server environment
-    env.hosts = [os.environ.get('HOST_NAME', collection), ]
-
-    env.tag = tag
+    # Setup specific to remote server
+    remote_setup(collection)
 
 
 def translate():
@@ -207,7 +200,7 @@ def _reset_local_postgres(live: bool = False):
     compose('up -d postgres')
 
 
-def _restore_latest_postgres(live: bool = False):
+def _restore_latest_postgres():
     # TODO: Implement intelligent database restore
     pass
 
@@ -305,8 +298,9 @@ def sync_env(env_dir: str = '.local'):
         env_dir: .local by default.
 
     """
+    env.live = False
     env.env_dir = env_dir
-    execute('rsync -aPh ./{env_dir}/ {host_name}:/srv/apps/{project_name}/{env_dir}'.format(**env), live=False)
+    execute('rsync -aPh ./{env_dir}/ {host_name}:/srv/apps/{project_name}/{env_dir}'.format(**env))
 
 
 @task

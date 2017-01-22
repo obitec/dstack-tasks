@@ -15,37 +15,6 @@ def get_result(cmd: str = 'echo "Hello, World!'):
         return result if result else ''
 
 
-def activate_venv(env: dict, style: str = 'conda', venv: str = 'env') -> None:
-    """ Helper function to set Python virtual environment activation command
-
-    Conda activation:
-        unix        $ source activate <venv>
-        nt          C:\> activate <venv>
-
-    Python venv activation:
-        bash/zsh 	$ source <venv>/bin/activate
-        fish 	    $ . <venv>/bin/activate.fish
-        cmd.exe 	C:\> <venv>\\Scripts\\activate.bat
-        PowerShell 	PS C:\> <venv>\\Scripts\\Activate.ps1
-    """
-    # Configure env activation
-    env['os'] = os.name
-
-    # various styles
-    activate = {
-        'conda': {
-            'posix': 'source activate ' + venv,
-            'nt': 'activate ' + venv
-        },
-        'pip': {
-            'posix': 'source ' + os.path.join(venv, 'bin/activate'),
-            'nt': os.path.join(venv, 'Scripts/activate.bat')
-        }
-    }
-
-    env['activate'] = activate[style][os.name]
-
-
 def dirify(base_path: str = None, force_posix: bool = False) -> Callable[[str], str]:
     """Helper function that returns a partial function to build paths from base path
 

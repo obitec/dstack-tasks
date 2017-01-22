@@ -18,7 +18,7 @@ from .deploy import (
     build_code, init_deploy, copy_envs, deliver)
 
 # Config setup related
-from .tasks import e, fabric_setup, local_setup, remote_setup, configure_hosts
+from .tasks import e, remote_setup, configure_hosts
 
 # Untested
 from .tasks import (
@@ -26,3 +26,5 @@ from .tasks import (
 
 # Local
 from .local import init
+
+from .dashboard import update_views

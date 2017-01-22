@@ -94,7 +94,7 @@ def check_virtual_env():
     conda_envs = conda_envs.split('\n')[2:]
 
     for cenv in conda_envs:
-        project_env_line = cenv.find(env.virtual_env) != -1
+        project_env_line = cenv.find(env.venv_name) != -1
 
         if cenv.find('*') and project_env_line:
             if env.log_level <= logging.INFO:

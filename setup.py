@@ -33,6 +33,7 @@ setup(
         'Fabric3>=1.12.post1',
         'python-dotenv>=0.5.1',
         'pyyaml>=3.11',
+        'setuptools_scm',
     ],
     extras_require={
         'dev': [
