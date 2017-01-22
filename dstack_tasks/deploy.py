@@ -13,14 +13,15 @@ import os.path
 
 
 @task
-def make_wheels(package: str = None) -> None:
+def make_wheels(use_wheel: bool = False, package: str = None) -> None:
     """Build wheels for python packages
 
     Creates wheel package for each dependency specified in build-reqs.txt (if it exists) else
     relies on the main packages's setup.py file to find and build dependencies.
 
     Args:
-        package (str): The primary package. Any input accepted by pip is accepted here. E.g.:
+        use_wheel: Default = False. If True, uses a wheel package to determine what dependencies to build.
+        package: The primary package. Any input accepted by pip is accepted here. E.g.:
             `dstack-tasks` or `dstack-tasks>1.0.0`.
 
     See also:
@@ -34,32 +35,54 @@ def make_wheels(package: str = None) -> None:
         AttributeError: Raised when neither a package nor a build-reqs.txt is specified.
 
     Warnings:
-        This function requires a working `wheels-factory <https://github.com/obitec/wheel-factory/>`_ to be running on the specified server.
+        This function requires a working `dstack-factory <https://github.com/obitec/dstack-factory/>`_ to
+        be running on the specified server.
 
     Note:
         This task can be run on a different server that the one being deployed to by supplying the ``hosts``
-        command line argument.
+        command line argument, e.g.:
+        fab e dry make_wheels:hosts=factory.obitec.co
 
+        If you've got custom python dependencies, e.g. django-factbook, that has not yet been published to pip,
+         just make sure to first build them using a build-req.txt file containing the source url and run make_wheels.
+         This will archive a wheel package for that dependency on dstack-factories archive and will be retrieved
+         for the subsequent build.
 
     """
+    # TODO: Refactor and make distinction between "recipe" builds and "wheel" build clearer.
+
+    env.live = True
+
     build_dir = dirify(env.build_dir, force_posix=True)
 
-    if os.path.exists('build-reqs.txt'):
-        filer(cmd='put', local_path='build-reqs.txt', remote_path=build_dir('build-requirements.txt'))
+    if use_wheel and package is None:
+        package = '{package}=={tag}'.format(package=env.project_name, tag=env.tag)
+        wheel = '{package}-{tag}-py3-none-any.whl'.format(package=env.project_name, tag=env.tag)
+        if not os.path.exists('dist/' + wheel):
+            # TODO: also test if package has been uploaded to dstack-factory
+            raise AttributeError(
+                'use_wheel was set to True, but no package has been specified and project wheel does not exist')
+
+    if os.path.exists('build-reqs.txt') and not use_wheel:
+        recipe = 'recipes/{package}-{tag}.txt'.format(package=env.project_name, tag=env.tag)
+        filer(cmd='put', local_path='build-reqs.txt', remote_path=build_dir(recipe))
+        # TODO: Allow docker-compose to be run with RECIPE env
 
     elif package:
-        filer(cmd='put', local_path=io.StringIO(package), remote_path=build_dir('build-requirements.txt'))
-
+        # Uploading the file is now part of release_code:
+        # filer(cmd='put', local_path=os.path.join('dist', wheel), remote_path=build_dir('archive/'))
+        if env.dry:
+            print('String object: ' + package)
+        filer(cmd='put', local_path=io.StringIO(package), remote_path=build_dir('recipes/requirements.txt'))
     else:
         raise AttributeError('Either a package must be specified or build-reqs.txt must exist.')
 
-    execute('rm -rf *.whl', path=build_dir('wheelhouse'), live=True)
-
-    compose(cmd='-f service.yml -p %s run --rm wheel-factory' % env.project_name, path=build_dir(''), live=True)
+    execute('rm -rf *.whl', path=build_dir('wheelhouse'))
+    compose(cmd='run --rm factory', path=build_dir(''))
 
 
 @task
-def make_default_webapp(tag: str = 'latest', package: str = None) -> None:
+def make_default_webapp(tag: str = None, package: str = None, image_type: str = 'wheel', push: bool = True) -> None:
     """Builds a docker image that contains the necessary libraries and dependencies to run the
     specified package from.
 
@@ -71,25 +94,66 @@ def make_default_webapp(tag: str = 'latest', package: str = None) -> None:
         package: The name and optional version of package to build a docker image for.
             Can be any format that is accepted by pip, including GitHub links.
         tag: The SemVer Tag
+        image_type: Either immutable, wheel, or source. Immutable adds installs the target package, wheel adds ONBUILD
+            commands to add a wheel file for production image and source adds ONBUILD commands for adding source
+            to production image
+            If the latter two are chosen it means it is a three step build process: Make wheel,
+            make and publish runtime and add application for production.
+        push: Whether to push image to DockerHub. Warning: do not push immutable images with proprietary code to
+            DockerHub!
 
     Returns:
         None
 
     """
+    if tag is None:
+        tag = env.tag
 
     if os.path.exists('requirements.txt'):
         filer(cmd='put', local_path='./requirements.txt', remote_path='/srv/build/requirements.txt')
 
+    else:
+        build_dir = dirify(env.build_dir, force_posix=True)
+        execute('cp recipes/requirements.txt ./requirements.txt', path=build_dir(''), live=True)
+
+    # TODO: make neat
+    if image_type == 'immutable':
+        # TODO: convert execute() to docker()?
+        execute('docker build -t {image_name}:{tag} .'.format(
+            image_name=env.image_name, tag=tag), path='/srv/build', live=True)
+    elif image_type == 'wheel':
+        execute('docker build -f Dockerfile-wheel -t {image_name}:{tag} .'.format(
+            image_name=env.image_name, tag=tag), path='/srv/build', live=True)
+    elif image_type == 'source':
+        execute('docker build -f Dockerfile-source -t {image_name}:{tag} .'.format(
+            image_name=env.image_name, tag=tag), path='/srv/build', live=True)
+
+    if push:
+        # TODO: Allow publishing to private docker registry
+        docker('tag {image_name}:{tag} {image_name}:latest'.format(
+            image_name=env.image_name, path='', tag=tag), live=True)
+
+        push_image(tag=tag, live=True)
+
+        # TODO: Figure out a way to keep latest up to date
+        push_image(tag='latest', live=True)
+
     # TODO: make path configurable and locally executable
-    execute('docker build -t {image_name}:{image_tag} .'.format(
-        image_name=env.image_name, image_tag=tag), path='/srv/build', live=True)
+    # execute('docker build -t {image_name}:{tag} .'.format(
+    #     image_name=env.image_name, tag=tag), path='/srv/build', live=True)
 
 
 @task
-def push_image(tag: str = 'latest', live: bool = False) -> None:
+def push_image(tag: str = None, live: bool = False) -> None:
     """Wrapper to simplify pushing an image to DockerHub
 
     """
+    if tag is None:
+        tag = env.tag
+
+    if live is None:
+        live = env.live
+
     docker('push %s:%s' % (env.image_name, tag), path='', live=live)
 
 
@@ -197,7 +261,7 @@ def build_code(live: bool = False, migrate: bool = False) -> None:
 
 
 @task
-def release_runtime(tag: str = 'latest') -> None:
+def release_runtime(tag: str = None, use_package: bool = True, image_type: str = 'wheel') -> None:
     """Rebuilds the docker container for the python runtime and push a tag image to to DockerHub.
 
     Note:
@@ -205,50 +269,68 @@ def release_runtime(tag: str = 'latest') -> None:
 
     Args:
         tag: Name of release, preferably a SemVer version number
+        use_package: use_package
+        image_type: See :py:func:`make_default_webapp` for options.
 
     Returns:
         None
     """
+    env.live = True
+    tag = tag or env.tag
 
-    make_wheels()
-    make_default_webapp(tag=tag)
+    make_wheels(use_wheel=use_package, package=env.project_name if use_package else None)
+    make_default_webapp(tag=tag, image_type=image_type, publish=True)
     # TODO: should be able to specify private repo
-
-    docker('tag {image_name}:{tag} {image_name}:latest'.format(
-        image_name=env.image_name, path='', tag=tag), live=True)
-
-    push_image(tag=tag, live=True)
-
-    # TODO: Figure out a way to keep latest up to date
-    push_image(tag='latest', live=True)
 
 
 @task
-def release_code(tag: str = 'latest') -> None:
-    """Commits, tags and pushes tag to GitHub
+def release_code(tag: str = None, upload_wheel: bool = False) -> None:
+    """Commit, tag, push to GitHub and optionally upload wheel to dstack-factory for archiving
 
     Note:
         This task is safe, it does not affect the production runtime!
 
     Args:
-        tag: Name of release, preferably a SemVer version number
+        tag: Optional. Specify a SemVer compliant version code to force a specific version. (Deprecated?)
+        upload_wheel: Default = False. If True, uploads wheel file to your dstack-factory for building.
+
+    Example:
+        fab e release_code
+
+        If successful, the next step is to run ``make_wheels``
 
     """
-    # TODO: Replace with actually checking for clean tree
-    answer = prompt('Did you remember to first commit all changes??', default='no', )
-    if answer == 'yes':
+    # Only use SemVer major.minor.patch version tag for git releases
+    tag = tag or '.'.join(env.tag.split('.')[:3])
+    print(yellow('The current version is: {version}. The release tag will be: {tag}'.format(
+        version=env.version, tag=tag)))
+
+    if len(env.version.split('.')) == 5:
+        print(red('First commit all changes, then run this task again'))
+        raise AssertionError('Git tree is dirty')
+    else:
         if tag == 'latest':
             git('push origin master')
         else:
             try:
-                git('tag %s' % tag)
+                git('tag {tag}'.format(tag=tag))
             except SystemExit:
                 print(yellow('Git tag already exists'))
             git('push origin {tag}'.format(tag=tag))
+            env.version = tag
+            env.tag = tag
+
+        execute('rm -rf dist/ build/ *.egg-info/ && python setup.py build bdist_wheel')
+
+        if upload_wheel:
+            build_dir = dirify(env.build_dir, force_posix=True)
+            wheel = '{package}-{tag}-py3-none-any.whl'.format(package=env.project_name, tag=env.tag)
+
+            filer(cmd='put', local_path=os.path.join('dist', wheel), remote_path=build_dir('archive/'))
 
 
 @task
-def release_data(tag: str = 'latest') -> None:
+def release_data() -> None:
     """Backup and upload tagged version of database
 
     Note:
@@ -266,13 +348,13 @@ def release_data(tag: str = 'latest') -> None:
     """
     # TODO: Implement S3(?) database/fixture/view storage
     # TODO: Implement cloud storage for media + static files
-    print('Not implemented! ' + tag)
+    print('Not implemented! ')
 
     # raise NotImplementedError
 
 
 @task
-def release_tag(tag: str = 'latest') -> None:
+def release_tag(tag: str = None) -> None:
     """Convenience task that release a named version of the runtime, code and data
 
     Args:
@@ -282,46 +364,46 @@ def release_tag(tag: str = 'latest') -> None:
         None
 
     """
-    answer = prompt('Did you make changes the database?', default='no', )
-    if answer == 'yes':
-        release_data(tag=tag)
-
-    answer = prompt('Did you update the code?', default='no', )
+    answer = prompt('Did you update the code?', default='yes', )
     if answer == 'yes':
         release_code(tag=tag)
 
+    answer = prompt('Did you make changes the static files?', default='no', )
+    if answer == 'yes':
+        release_data()
+
     answer = prompt('Did you update python dependencies?', default='no', )
     if answer == 'yes':
-        release_runtime(tag=tag)
+        release_runtime()
     else:
         docker('tag {image_name}:latest {image_name}:{tag}'.format(
-            image_name=env.image_name, tag=tag), live=True)
+            image_name=env.image_name, tag=env.tag), path='', live=True)
         # push_image(tag=tag, live=True)
-        docker('push %s:%s' % (env.image_name, tag), path='', live=True)
+        docker('push {image_name}:{tag}'.format(
+            image_name=env.image_name, tag=env.tag), path='', live=True)
 
 
 @task
-def build_runtime(tag: str = 'latest', instance: str = 'production', image_name: str = None, live: bool = True) -> None:
+def build_runtime(image_name: str = None, tag: str = None, instance: str = 'production',
+                  use_wheel: bool = False, live: bool = None) -> None:
     """Builds the production runtime
 
     This task is safe, it does not affect the running instance!
     The next restart, however, might change the runtime.
 
     """
-    if not isinstance(live, bool):
-        live = bool(strtobool(live))
-
+    tag = tag or env.tag
     image_name = image_name or env.image_name
 
     # Pull latest docker version
     answer = prompt('Did you update the base image?', default='no', )
     if answer == 'yes':
-        docker('pull {image_name}:{image_tag}'.format(image_name=image_name, image_tag=tag), live=True)
-        docker('pull {image_name}:latest'.format(image_name=image_name), live=True)
+        docker('pull {image_name}:{tag}'.format(image_name=image_name, tag=tag), live=live)
+        docker('pull {image_name}:latest'.format(image_name=image_name), live=live)
         # docker('tag {image_name}:{tag} {image_name}:latest'.format(
         #     image_name=image_name, tag=tag), live=True)
 
-    if live:
+    if env.live:
         git('fetch --all', live=True)
         answer = prompt('Checking out a tag?', default='yes', )
         if answer == 'yes':
@@ -331,17 +413,22 @@ def build_runtime(tag: str = 'latest', instance: str = 'production', image_name:
 
     # execute("rsync -avz --exclude-from '.dockerignore' ./src/ .local/build/", live=True)
 
-    env.image_tag = '{tag}-{instance}'.format(tag=tag, instance=instance)
-    # env.image_tag = tag + '-production'
-    # with prefix('export UID'):
     docker('tag {image_name}:{tag} default_webapp'.format(
         image_name=image_name, tag=tag), path='', live=live)
 
-    compose('build webapp', live=live)
+    if use_wheel:
+        # TODO: Update/create/install virtualenv/python?
+        execute('rm -rf dist/ build/ {project_name}.egg-info/ && python setup.py build bdist_wheel'.format(
+            project_name=env.project_name), live=live)
+        # execute('')
+
+    # TODO: Figure out consecquences, e.g follow up tasks
+    env.tag = tag
+    compose('build webapp', instance=instance, live=live)
 
 
 @task
-def deploy_runtime(tag: str = 'latest', instance: str = 'production', first: bool = False) -> None:
+def deploy_runtime(tag: str = None, instance: str = 'production', first: bool = False) -> None:
     """
     Deploys production runtime.
 
@@ -361,13 +448,19 @@ def deploy_runtime(tag: str = 'latest', instance: str = 'production', first: boo
         first: First initialise (git clone, etc) the webapp before updating and deploying it.
 
     """
+    # This task is designed to only run on server
+    env.live = True
 
-    env.image_tag = '{tag}-{instance}'.format(tag=tag, instance=instance)
+    # Either use current git version or the specified version
+    tag = tag or env.tag
+
+    env.tag = tag
 
     if first:
-        compose('up -d webapp', live=True)
-        manage('migrate', live=True)
-        manage('loaddata config/fixtures/initial_data.json', live=True)
+        compose('up -d webapp', instance=instance)
+        manage('migrate')
+        # TODO: understand how fixtures are namespaced and loaded to avoid specifying paths
+        manage('loaddata config/fixtures/initial_data.json')
 
     else:
         answer = prompt('Did you want to migrate?', default='no', )
@@ -375,24 +468,23 @@ def deploy_runtime(tag: str = 'latest', instance: str = 'production', first: boo
         if answer == 'yes':
             answer = prompt('Do you want to create a backup?', default='yes', )
             if answer == 'yes':
-                postgres(cmd='backup', tag=tag + '-rollback', live=True)
+                postgres(cmd='backup', tag=tag + '-rollback')
             manage('migrate', live=True)
             answer = prompt('Was the migration successful?', default='yes', )
             if answer == 'no':
-                postgres(cmd='restore', tag=tag + '-rollback', live=True)
+                postgres(cmd='restore', tag=tag + '-rollback')
                 raise Exception('Deployment failed')
 
-    compose('up -d webapp', live=True)
+    compose('up -d webapp')
 
     with prefix('export UID'):
-        env.image_tag = tag
-        # compose('up static_builder', live=live)
-        compose('up static_collector', live=True)
-        compose('up volume_fixer', live=True)
+        # compose('up static_builder')
+        compose('up static_collector')
+        compose('up volume_fixer')
 
 
 @task
-def deliver(tag: str = 'latest', instance: str = 'production', image_name: str = None, first: bool = False) -> None:
+def deliver(tag: str = None, instance: str = 'production', image_name: str = None, first: bool = False, use_wheel: bool = False) -> None:
     """From build to deploy!
 
     Main task for delivering a new task to the server.
@@ -403,16 +495,16 @@ def deliver(tag: str = 'latest', instance: str = 'production', image_name: str =
         instance: Distinguishes the final immutable image from the base image. e.g. 1.2.10-production.
         image_name: Used to override the image_name retrieved from the env dict.
         first: Initialize the project if True, otherwise update it.
+        use_wheel: Whether to use requirements.txt or pre-build wheel file.
 
     """
     release_tag(tag=tag)
 
     if first:
-        # TODO: Put org in the env config
-        init_deploy(org=None)
+        init_deploy()
         copy_envs()
 
-    build_runtime(image_name=image_name, tag=tag, instance=instance)
+    build_runtime(image_name=image_name, tag=tag, instance=instance, use_wheel=use_wheel)
     deploy_runtime(tag=tag, instance=instance, first=first)
 
 
@@ -449,11 +541,10 @@ def copy_envs(env_path: str = '.local'):
 
 
 @task
-def init_deploy(org: str, ssh: bool = False):
+def init_deploy(ssh: bool = False):
     """Task for initialising webapps deployed for the first time.
 
     Args:
-        org: The organisation name, used in constructing the docker tag
         ssh: Use ssh style GitHub cloning if True, https style if False
 
     Returns:
@@ -463,26 +554,24 @@ def init_deploy(org: str, ssh: bool = False):
         Make distinction between project name and GitHub name. Also allow other git repos/hosts
 
     """
-
-    if org:
-        env.organisation = org
+    env.live = True
 
     if ssh:
         git(cmd='clone git@github.com:{}/{}.git {}'.format(env.organisation, env.git_repo, env.project_name),
-            path='/srv/apps', live=True)
+            path='/srv/apps')
     else:
         git(cmd='clone https://github.com/{}/{} {}'.format(env.organisation, env.git_repo, env.project_name),
-            path='/srv/apps', live=True)
+            path='/srv/apps')
 
-    execute('mkdir -p .local', live=True)
-    execute('mkdir -p src/static', live=True)
+    execute('mkdir -p .local')
+    execute('mkdir -p src/static')
 
     # TODO: Make this work. Maybe check out dockergen templating or add to server install
-    execute('cp /srv/nginx/templates/nginx-vhost.conf /srv/nginx/vhost.d/{}'.format(env.virtual_host),
-            path='', live=True)
+    execute('cp /srv/nginx/templates/nginx-vhost.conf /srv/nginx/vhost.d/{}'.format(env.virtual_host), path='')
     execute("sed -i.bak 's/{{project_name}}/%s/g' '/srv/nginx/vhost.d/%s'" % (
-        env.project_name.replace('.', '\.'), env.virtual_host), path='', live=True)
+        env.project_name.replace('.', '\.'), env.virtual_host), path='')
 
+    env.live = False
 
 # @task
 # def copy_envs():
