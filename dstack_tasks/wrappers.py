@@ -21,11 +21,11 @@ from fabric.decorators import task
 from fabric.operations import local, run, get, put, prompt
 from fabric.state import env
 
-from .utils import check_keys
+from .utils import check_keys, dirify
 
 
 @task
-def dotenv(action: str = None, key: str = None, value: str = None, live: bool = None) -> None:
+def dotenv(action: str = None, key: str = None, value: str = None, live: bool = None, env_file: str = None) -> None:
     """Manage project configuration via .env
 
     e.g: fab config:set,<key>,<value>
@@ -37,9 +37,18 @@ def dotenv(action: str = None, key: str = None, value: str = None, live: bool = 
         live = env.live
 
     if live:
-        dot_path = env.server_dotenv_path
+        if env_file:
+            project_dir = dirify(env.project_dir, force_posix=True)
+            dot_path = project_dir(env_file)
+        else:
+            dot_path = env.server_dotenv_path
+
     else:
-        dot_path = env.local_dotenv_path
+        if env_file:
+            project_path = dirify(env.project_path)
+            dot_path = project_path(env_file)
+        else:
+            dot_path = env.local_dotenv_path
 
     try:
         from dotenv import get_cli_string
@@ -50,9 +59,12 @@ def dotenv(action: str = None, key: str = None, value: str = None, live: bool = 
             print('pip install -U python-dotenv')
     else:
         execute('touch %s' % dot_path, live=live)
-        command = dotenv.get_cli_string(dot_path, action, key, value)
-        execute(command, live=live)
+        command = get_cli_string(dot_path, action, key, value)
 
+        d, e = command.split(sep=' ', maxsplit=1)
+        command = d + ' -q auto ' + e
+
+        execute(command, live=live)
 
 # @task
 # def execute_on(host: str, task_name: str):
@@ -190,7 +202,7 @@ def conda(cmd: str = '--help') -> None:
 @task
 def filer(cmd: str = 'get',
           local_path: str = None, remote_path: str = None,
-          file: str = '.env', use_sudo: bool = False) -> None:
+          file: str = '.env', use_sudo: bool = False, fix_perms: bool = True) -> None:
     """Specifying a remote_path or a local_path overrides the "file" parameter.
 
     Args:
@@ -199,6 +211,7 @@ def filer(cmd: str = 'get',
         remote_path: Path to remote file
         file: Shortcut if it is a file that needs to be copied to its corresponding project location
         use_sudo: Prompts for sudo password to run the command with elevated privileges.
+        fix_perms: Default = True. Whether to add read permission for group and other users.
 
     Raises:
         AttributeError: Raised if neither `file` nor local and remote paths where specified.
@@ -216,7 +229,8 @@ def filer(cmd: str = 'get',
         get(remote_path=remote_path, local_path=local_path, use_sudo=use_sudo)
     elif cmd == 'put':
         put(local_path=local_path, remote_path=remote_path, use_sudo=use_sudo)
-        execute('chmod go+r {0}'.format(remote_path), path='', live=True)
+        if fix_perms:
+            execute('chmod -R go+r {0}'.format(remote_path), path='', live=True)
 
 
 @task
@@ -417,6 +431,8 @@ def dry(dry_run: bool = True) -> None:
                   'scp {host}:{remote_path} {local_path}'.format(**locals()), sep='')
 
         def put(remote_path, local_path=None, use_sudo=False, temp_dir=""):
+            if not isinstance(local_path, str):
+                local_path = '"' + local_path.getvalue() + '"'
             host = env.host_string
             print(green('(dry) '),  yellow('[localhost] '),
                   'scp {local_path} {host}:{remote_path}'.format(**locals()), sep='')
