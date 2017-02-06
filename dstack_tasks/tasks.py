@@ -115,10 +115,13 @@ def e(collection: str = None, tag: str = None, live: bool = False) -> None:
         'git_repo': getenv('GIT_REPO', ''),
         'venv_name': getenv('VENV_NAME', ''),
         'venv_type': getenv('VENV_TYPE', 'conda'),
-        'image_name': getenv('IMAGE_NAME', env.dir),
+        'image_name': getenv('IMAGE_NAME', ''),
 
         'node_modules_prefix': getenv('NODE_PREFIX', '.local'),
     })
+
+    if not env.image_name:
+        env.image_name = env.organisation + '/' + env.dir
 
     # Guess the virtual env
     env.venv_name = env.venv_name or env.project_name if env.venv_type == 'conda' else 'venv'

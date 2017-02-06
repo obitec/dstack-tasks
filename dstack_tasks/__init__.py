@@ -15,7 +15,7 @@ from .deploy import make_wheels, make_default_webapp, push_image, ci, build
 # improved workflow
 from .deploy import (
     release_code, release_data, build_runtime, deploy_runtime, release_tag, release_runtime,
-    build_code, init_deploy, copy_envs, deliver)
+    build_code, init_deploy, copy_envs, deliver, new_release, write_requirements)
 
 # Config setup related
 from .tasks import e, remote_setup, configure_hosts

@@ -1,28 +1,46 @@
 import io
 import os
 from distutils.util import strtobool
+from typing import Union
 
 from fabric.api import env
 from fabric.colors import yellow, red
 from fabric.context_managers import prefix
 from fabric.decorators import task
-from fabric.operations import prompt, local
+from fabric.operations import prompt, local, run
 from .utils import dirify, vc
-from .wrappers import compose, docker, execute, postgres, manage, git, filer
+from .wrappers import compose, docker, execute, postgres, manage, git, filer, dotenv
 import os.path
 
 
 @task
-def make_wheels(use_wheel: bool = False, package: str = None) -> None:
+def make_wheels(use_package: Union[str, bool] = None, use_recipe: Union[str, bool] = None,
+                clear_wheels: bool = True, interactive: bool = True) -> bool:
     """Build wheels for python packages
 
     Creates wheel package for each dependency specified in build-reqs.txt (if it exists) else
     relies on the main packages's setup.py file to find and build dependencies.
 
     Args:
-        use_wheel: Default = False. If True, uses a wheel package to determine what dependencies to build.
-        package: The primary package. Any input accepted by pip is accepted here. E.g.:
-            `dstack-tasks` or `dstack-tasks>1.0.0`.
+        use_package: Default = None. If specified, use this single package as source for dstack-factory to find
+            dependencies to build. Can be a local wheel file uploaded to dstack-factory archive or any package
+            specification accepted by pip. If use_package ends in `.whl` `make_wheel` assumes that the package
+            has already been uploaded to dstack-factory's archive.
+            Examples: `{package}-{version}-py3-none-any.whl`, `dstack-tasks` or `dstack-tasks>1.0.0`.
+        use_recipe: Default = None. Can be bool or str. If True, then use default recipe "build-reqs.txt". If no package
+            is specified in `use_package`, then this pip requirements style file is uploaded and used as only source for
+            dependencies. If a recipe is specified as well as a package, dependencies specified in the recipe will be
+            build first and then the dependencies from the package.
+            This allows fine grained control over which version or sources are used for packages. E.g. if
+            "install_requires" specifies `celery`, but you don't want the version on PyPI, then you can specify a
+            GitHub fork or any other source to install from in your recipe file.
+        clear_wheels: Default = True. Clears the wheel packages before building. The theory is that if only the required
+            wheel files are in the docker build context then the builds will be faster and the resulting image be
+            smaller. This option is used when bothe use_packege and use_recipe has been given. This task then
+            calls itself twice, once for building the recipe dependencies and then, without clearing the wheel files
+            from previous build, build the dependencies as specified by the package.
+        interactive: Default = True. Whether this task should prompt questions and reminders like reminding you
+            to first upload your wheel package.
 
     See also:
         :py:func:`make_default_webapp` Uses these wheels to create a docker runtime with only the minimal
@@ -33,6 +51,8 @@ def make_wheels(use_wheel: bool = False, package: str = None) -> None:
 
     Raises:
         AttributeError: Raised when neither a package nor a build-reqs.txt is specified.
+        FileExistsError: Raised when wheel file is specified for package, but not uploaded to archive yet.
+        FileNotFoundError: Raised when recipe file could not be found.
 
     Warnings:
         This function requires a working `dstack-factory <https://github.com/obitec/dstack-factory/>`_ to
@@ -44,45 +64,134 @@ def make_wheels(use_wheel: bool = False, package: str = None) -> None:
         fab e dry make_wheels:hosts=factory.obitec.co
 
         If you've got custom python dependencies, e.g. django-factbook, that has not yet been published to pip,
-         just make sure to first build them using a build-req.txt file containing the source url and run make_wheels.
+         just make sure to run make_wheels with `use_recipe=True` to first build build-req.txt dependencies
+         containing the source url for custom pacakges.
          This will archive a wheel package for that dependency on dstack-factories archive and will be retrieved
-         for the subsequent build.
+         for the subsequent `package_build`.
 
     """
-    # TODO: Refactor and make distinction between "recipe" builds and "wheel" build clearer.
-
     env.live = True
 
+    # Set the defaults
     build_dir = dirify(env.build_dir, force_posix=True)
+    recipe_filename = 'requirements'
 
-    if use_wheel and package is None:
-        package = '{package}=={tag}'.format(package=env.project_name, tag=env.tag)
-        wheel = '{package}-{tag}-py3-none-any.whl'.format(package=env.project_name, tag=env.tag)
-        if not os.path.exists('dist/' + wheel):
-            # TODO: also test if package has been uploaded to dstack-factory
-            raise AttributeError(
-                'use_wheel was set to True, but no package has been specified and project wheel does not exist')
+    # If neither parameters are given, use defaults for both (same as specifying True for both)
+    if use_package is None and use_recipe is None:
+        use_package = True
+        use_recipe = True
 
-    if os.path.exists('build-reqs.txt') and not use_wheel:
-        recipe = 'recipes/{package}-{tag}.txt'.format(package=env.project_name, tag=env.tag)
-        filer(cmd='put', local_path='build-reqs.txt', remote_path=build_dir(recipe))
-        # TODO: Allow docker-compose to be run with RECIPE env
+    if use_package in [True, 'True', 'true', '1']:
+        use_package = '{package}-{tag}-py3-none-any.whl'.format(package=env.project_name, tag=env.tag)
+    if use_recipe in [True, 'True', 'true', '1']:
+        use_recipe = 'build-reqs.txt'
 
-    elif package:
-        # Uploading the file is now part of release_code:
-        # filer(cmd='put', local_path=os.path.join('dist', wheel), remote_path=build_dir('archive/'))
-        if env.dry:
-            print('String object: ' + package)
-        filer(cmd='put', local_path=io.StringIO(package), remote_path=build_dir('recipes/requirements.txt'))
+    # This is the default way of building runtime images:
+    # The .whl file created from "setup.py build bdist_wheel" will be used to get list of dependencies
+    # dstack-factory will use the "install_requires" to determine what dependencies to create wheel files for.
+    # This method works best if your dependencies are all released on pip
+    if use_package and use_recipe:
+        # Naive check to see if a matching .whl file has recently been built
+        # TODO: test if it has actually been uploaded to archive and optionally download from s3 or upload if not
+        wheel_file = '{package}-{tag}-py3-none-any.whl'.format(package=env.project_name, tag=env.tag)
+        if not os.path.exists('dist/' + wheel_file):
+            # raise AttributeError(
+            #     'Trying to build wheels from project wheel, but build does not exist')
+            print(red('ERROR: First build your file. {} does not exist.'.format(wheel_file)))
+            return exit(1)
+
+        make_wheels(use_recipe=use_recipe, interactive=False)
+        make_wheels(use_package=use_package, clear_wheels=False, interactive=False)
+
+        return True
+
+    # Useful for something like superset that can be installed from pip or from arbitrary wheel file uploaded archive.
+    # There is currently now difference between specify a .whl file or a pip package specification except that it
+    # asks you if you've uploaded the file to the archive. This is because when dstack-factory builds wheels it checks
+    # for existing wheels in archive before downloading from pip or other source.
+    elif use_package and not use_recipe:
+        # TODO: Also add support for s3 hosted .whl files, e.g. s3://dstack-storage/django-1.10.3-py3-none-any.whl
+        # print(use_package[-4:])
+        if use_package[-4:] == '.whl':
+            # e.g. make_wheels(use_package='django-1.10.3-py3-none-any.whl')
+            if interactive:
+                answer = prompt('Did you remember to upload wheel package to dstack-factory archive?', default='yes')
+            else:
+                answer = 'yes'
+
+            if answer == 'yes':
+                package, tag = use_package.split('-', maxsplit=2)[:2]
+                use_recipe = io.StringIO('{package}=={tag}'.format(package=package, tag=tag))
+            else:
+                # raise FileExistsError('First upload the file before you continue!')
+                print(red('ERROR: First upload the file before you continue'))
+                return exit(1)
+        else:
+            # e.g. make_wheels(use_package='django==1.10')
+            use_recipe = io.StringIO(use_package)
+
+    # Use only a pip requirements file to build wheels. This is the old way of doing things and requires exact version
+    # pinning for both creating the wheels as well as making the default_webapp.
+    elif not use_package and use_recipe:
+        if os.path.exists(use_recipe):
+            recipe_filename = '{package}-{tag}'.format(package=env.project_name, tag=env.tag)
+        else:
+            # raise FileNotFoundError('Recipe file not found!')
+            print(red('ERROR: Recipe file does not exist'))
+            return exit(1)
+
     else:
-        raise AttributeError('Either a package must be specified or build-reqs.txt must exist.')
+        print(red('Invalid setup. Must specify either use_package, or use_recipe'))
+        return exit(1)
 
-    execute('rm -rf *.whl', path=build_dir('wheelhouse'))
-    compose(cmd='run --rm factory', path=build_dir(''))
+    if clear_wheels:
+        execute('rm -rf *.whl', path=build_dir('wheelhouse'))
+
+    filer(cmd='put', local_path=use_recipe, remote_path=build_dir('recipes/{}.txt'.format(recipe_filename)))
+    execute(cmd='export RECIPE={} && docker-compose run --rm factory'.format(recipe_filename), path=build_dir(''))
+    # compose(cmd='run --rm factory', path=build_dir(''))
+
+    env.live = False
+    return True
+
+
+def list_dir(path=None):
+    """returns a list of files in a directory (dir_) as absolute paths"""
+    dir_ = path or env.cwd
+    string_ = run("for i in %s*; do echo $i; done" % dir_)
+    files = string_.replace("\r", "").split("\n")
+    return files
 
 
 @task
-def make_default_webapp(tag: str = None, package: str = None, image_type: str = 'wheel', push: bool = True) -> None:
+def write_requirements(exclude_package: bool = True):
+    """
+
+    Args:
+        exclude_package:
+
+    Returns:
+
+    """
+    build_dir = dirify(env.build_dir, force_posix=True)
+    wheels = list_dir(build_dir('wheelhouse/'))
+
+    package = '{package}=={tag}\n'.format(package=env.project_name, tag=env.tag)
+
+    requirements = io.StringIO()
+
+    for wheel in wheels:
+        name = os.path.basename(wheel)
+        requirement = '=='.join(name.split('-', maxsplit=2)[:2]) + '\n'
+
+        if not (exclude_package and requirement == package):
+            requirements.write(requirement)
+
+    filer(cmd='put', local_path=requirements, remote_path=build_dir('requirements.txt'))
+
+
+@task
+def make_default_webapp(tag: str = None, image_type: str = 'wheel', push: bool = True, instance: str = None) -> None:
     """Builds a docker image that contains the necessary libraries and dependencies to run the
     specified package from.
 
@@ -101,6 +210,7 @@ def make_default_webapp(tag: str = None, package: str = None, image_type: str = 
             make and publish runtime and add application for production.
         push: Whether to push image to DockerHub. Warning: do not push immutable images with proprietary code to
             DockerHub!
+        instance: Sets the instance tag for immutable builds, e.g. 'production'.
 
     Returns:
         None
@@ -109,24 +219,23 @@ def make_default_webapp(tag: str = None, package: str = None, image_type: str = 
     if tag is None:
         tag = env.tag
 
-    if os.path.exists('requirements.txt'):
-        filer(cmd='put', local_path='./requirements.txt', remote_path='/srv/build/requirements.txt')
+    build_dir = dirify(env.build_dir, force_posix=True)
+    build_extension = ''
 
-    else:
-        build_dir = dirify(env.build_dir, force_posix=True)
-        execute('cp recipes/requirements.txt ./requirements.txt', path=build_dir(''), live=True)
-
-    # TODO: make neat
+    # Uses the recipe from requirements.txt, typically just the package name
     if image_type == 'immutable':
-        # TODO: convert execute() to docker()?
-        execute('docker build -t {image_name}:{tag} .'.format(
-            image_name=env.image_name, tag=tag), path='/srv/build', live=True)
+        tag = tag + '-' + instance
+        build_extension = ''
+        execute('cp recipes/requirements.txt ./requirements.txt', path=build_dir(''), live=True)
     elif image_type == 'wheel':
-        execute('docker build -f Dockerfile-wheel -t {image_name}:{tag} .'.format(
-            image_name=env.image_name, tag=tag), path='/srv/build', live=True)
+        build_extension = '-wheel'
+        write_requirements(exclude_package=True)
     elif image_type == 'source':
-        execute('docker build -f Dockerfile-source -t {image_name}:{tag} .'.format(
-            image_name=env.image_name, tag=tag), path='/srv/build', live=True)
+        build_extension = '-source'
+        filer(cmd='put', local_path='./requirements.txt', remote_path=build_dir('requirements.txt'))
+
+    docker_tag = '{image_name}:{tag}'.format(image_name=env.image_name, tag=tag)
+    docker('build -f Dockerfile{} -t {} .'.format(build_extension, docker_tag), path=build_dir(''), live=True)
 
     if push:
         # TODO: Allow publishing to private docker registry
@@ -261,7 +370,7 @@ def build_code(live: bool = False, migrate: bool = False) -> None:
 
 
 @task
-def release_runtime(tag: str = None, use_package: bool = True, image_type: str = 'wheel') -> None:
+def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = None) -> None:
     """Rebuilds the docker container for the python runtime and push a tag image to to DockerHub.
 
     Note:
@@ -269,8 +378,8 @@ def release_runtime(tag: str = None, use_package: bool = True, image_type: str =
 
     Args:
         tag: Name of release, preferably a SemVer version number
-        use_package: use_package
         image_type: See :py:func:`make_default_webapp` for options.
+        instance: See :py:func:`make_default_webapp`.
 
     Returns:
         None
@@ -278,9 +387,9 @@ def release_runtime(tag: str = None, use_package: bool = True, image_type: str =
     env.live = True
     tag = tag or env.tag
 
-    make_wheels(use_wheel=use_package, package=env.project_name if use_package else None)
-    make_default_webapp(tag=tag, image_type=image_type, publish=True)
-    # TODO: should be able to specify private repo
+    # TODO: Don't break of build-reqs.txt does not exist
+    make_wheels()
+    make_default_webapp(tag=tag, image_type=image_type, push=True, instance=instance)
 
 
 @task
@@ -306,23 +415,25 @@ def release_code(tag: str = None, upload_wheel: bool = False) -> None:
         version=env.version, tag=tag)))
 
     if len(env.version.split('.')) == 5:
+        # raise AssertionError('Git tree is dirty')
         print(red('First commit all changes, then run this task again'))
-        raise AssertionError('Git tree is dirty')
+        return exit(1)
     else:
         if tag == 'latest':
             git('push origin master')
         else:
             try:
-                git('tag {tag}'.format(tag=tag))
+                git('tag v{tag}'.format(tag=tag))
             except SystemExit:
                 print(yellow('Git tag already exists'))
-            git('push origin {tag}'.format(tag=tag))
+            git('push origin v{tag}'.format(tag=tag))
             env.version = tag
             env.tag = tag
 
         execute('rm -rf dist/ build/ *.egg-info/ && python setup.py build bdist_wheel')
 
         if upload_wheel:
+            # TODO: upload to s3
             build_dir = dirify(env.build_dir, force_posix=True)
             wheel = '{package}-{tag}-py3-none-any.whl'.format(package=env.project_name, tag=env.tag)
 
@@ -391,6 +502,9 @@ def build_runtime(image_name: str = None, tag: str = None, instance: str = 'prod
     This task is safe, it does not affect the running instance!
     The next restart, however, might change the runtime.
 
+    TODO:
+        Rewrite.
+
     """
     tag = tag or env.tag
     image_name = image_name or env.image_name
@@ -407,7 +521,7 @@ def build_runtime(image_name: str = None, tag: str = None, instance: str = 'prod
         git('fetch --all', live=True)
         answer = prompt('Checking out a tag?', default='yes', )
         if answer == 'yes':
-            git('checkout --force {tag}'.format(tag=tag), live=True)
+            git('checkout --force v{tag}'.format(tag=tag), live=True)
         else:
             git('checkout --force origin/master', live=True)
 
@@ -578,10 +692,26 @@ def init_deploy(ssh: bool = False):
 #     put('.local/*', '/srv/apps/{}/.local/'.format(env.project_name))
 
 
-# INSTALL Virtualenv kernal python:
+# INSTALL Virtualenv kernel python:
 # OUTDATED but with correct path to copy:
 # http://help.pythonanywhere.com/pages/IPythonNotebookVirtualenvs
 
 # Correct usage:
 # https://github.com/ipython/ipykernel/issues/52#issuecomment-212001601
 
+@task
+def new_release():
+    # TODO: What happens when runtime updated?
+
+    project_dir = dirify(env.project_dir, force_posix=True)
+
+    execute('rm -rf {}'.format(project_dir('dist/*.whl')), live=True)
+    filer(cmd='put',
+          local_path='dist/{}-{}-py3-none-any.whl'.format(env.project_name, env.tag),
+          remote_path=project_dir('dist'))
+
+    dotenv(action='set', key='VERSION', value=env.tag, live=True)
+    dotenv(action='set', key='VERSION', value=env.tag, env_file='.local/webapp.env', live=True)
+
+    compose('build webapp',  path=env.project_dir, live=True)
+    compose('up -d webapp',  path=env.project_dir, live=True)
