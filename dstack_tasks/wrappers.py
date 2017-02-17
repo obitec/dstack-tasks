@@ -366,6 +366,34 @@ def s3(cmd: str = 'help', live: bool = None) -> None:
 
 
 @task
+def s3cp(file_path: str, direction: str = 'up', bucket: str = 's3://dstack-storage', live: bool = None) -> None:
+    """
+
+    Args:
+        file_path:
+        direction:
+        bucket:
+        live:
+
+    Returns:
+
+    """
+    if live is None:
+        live = env.live
+
+    remote_path = '{bucket}/{project_name}/{file_path}'.format(
+        file_path=file_path, bucket=bucket, project_name=env.project_name)
+
+    up_template = 'cp {file_path} {remote_path}'.format(
+        file_path=file_path, remote_path=remote_path)
+
+    down_template = 'cp {remote_path} {file_path}'.format(
+        file_path=file_path, remote_path=remote_path)
+
+    s3(cmd=up_template if direction == 'up' else down_template, live=live)
+
+
+@task
 def docker_exec(service='postgres', cmd: str = 'bash', live: bool = None):
     """Function that wraps the docker exec interface.
     This task reduces the amount of boiler plate needed to execute tasks in docker containers

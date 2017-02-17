@@ -5,7 +5,7 @@ from .utils import (
 
 from .wrappers import (
     docker, compose, manage, pip, bower, npm, git,
-    postgres, conda, dotenv, execute, filer, s3,
+    postgres, conda, dotenv, execute, filer, s3, s3cp,
     docker_exec, loaddata)
 
 from .helpers import echo

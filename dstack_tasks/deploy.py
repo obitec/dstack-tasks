@@ -9,13 +9,13 @@ from fabric.context_managers import prefix
 from fabric.decorators import task
 from fabric.operations import prompt, local, run
 from .utils import dirify, vc
-from .wrappers import compose, docker, execute, postgres, manage, git, filer, dotenv
+from .wrappers import compose, docker, execute, postgres, manage, git, filer, dotenv, s3, s3cp
 import os.path
 
 
 @task
 def make_wheels(use_package: Union[str, bool] = None, use_recipe: Union[str, bool] = None,
-                clear_wheels: bool = True, interactive: bool = True) -> bool:
+                clear_wheels: bool = True, interactive: bool = True, py_version: str = '3.5') -> bool:
     """Build wheels for python packages
 
     Creates wheel package for each dependency specified in build-reqs.txt (if it exists) else
@@ -41,6 +41,7 @@ def make_wheels(use_package: Union[str, bool] = None, use_recipe: Union[str, boo
             from previous build, build the dependencies as specified by the package.
         interactive: Default = True. Whether this task should prompt questions and reminders like reminding you
             to first upload your wheel package.
+        py_version: Default = 3.5. Python 3.6 is also supported.
 
     See also:
         :py:func:`make_default_webapp` Uses these wheels to create a docker runtime with only the minimal
@@ -148,7 +149,11 @@ def make_wheels(use_package: Union[str, bool] = None, use_recipe: Union[str, boo
         execute('rm -rf *.whl', path=build_dir('wheelhouse'))
 
     filer(cmd='put', local_path=use_recipe, remote_path=build_dir('recipes/{}.txt'.format(recipe_filename)))
-    execute(cmd='export RECIPE={} && docker-compose run --rm factory'.format(recipe_filename), path=build_dir(''))
+
+    execute(
+        cmd='export RECIPE={} PY_VERSION={} && docker-compose run --rm factory'.format(
+            recipe_filename, py_version),
+        path=build_dir(''))
     # compose(cmd='run --rm factory', path=build_dir(''))
 
     env.live = False
@@ -191,7 +196,8 @@ def write_requirements(exclude_package: bool = True):
 
 
 @task
-def make_default_webapp(tag: str = None, image_type: str = 'wheel', push: bool = True, instance: str = None) -> None:
+def make_default_webapp(tag: str = None, image_type: str = 'wheel', push: bool = True,
+                        instance: str = None, py_version: str = '3.5') -> None:
     """Builds a docker image that contains the necessary libraries and dependencies to run the
     specified package from.
 
@@ -211,6 +217,7 @@ def make_default_webapp(tag: str = None, image_type: str = 'wheel', push: bool =
         push: Whether to push image to DockerHub. Warning: do not push immutable images with proprietary code to
             DockerHub!
         instance: Sets the instance tag for immutable builds, e.g. 'production'.
+        py_version: Default = 3.5. Python 3.6 is also supported.
 
     Returns:
         None
@@ -233,6 +240,10 @@ def make_default_webapp(tag: str = None, image_type: str = 'wheel', push: bool =
     elif image_type == 'source':
         build_extension = '-source'
         filer(cmd='put', local_path='./requirements.txt', remote_path=build_dir('requirements.txt'))
+
+    execute(
+        cmd='sed -e "s/PY_VERSION/{}/g" Dockerfile{}.template > Dockerfile'.format(py_version, build_extension),
+        path=build_dir(''), live=True)
 
     docker_tag = '{image_name}:{tag}'.format(image_name=env.image_name, tag=tag)
     docker('build -f Dockerfile{} -t {} .'.format(build_extension, docker_tag), path=build_dir(''), live=True)
@@ -370,7 +381,7 @@ def build_code(live: bool = False, migrate: bool = False) -> None:
 
 
 @task
-def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = None) -> None:
+def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = None, py_version: str = '3.5') -> None:
     """Rebuilds the docker container for the python runtime and push a tag image to to DockerHub.
 
     Note:
@@ -380,6 +391,7 @@ def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = 
         tag: Name of release, preferably a SemVer version number
         image_type: See :py:func:`make_default_webapp` for options.
         instance: See :py:func:`make_default_webapp`.
+        py_version: See :py:func:`make_default_webapp`.
 
     Returns:
         None
@@ -387,13 +399,17 @@ def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = 
     env.live = True
     tag = tag or env.tag
 
-    # TODO: Don't break of build-reqs.txt does not exist
-    make_wheels()
-    make_default_webapp(tag=tag, image_type=image_type, push=True, instance=instance)
+    # Don't break of build-reqs.txt does not exist.
+    use_recipe = True
+    if not os.path.exists('build-reqs.txt'):
+        use_recipe = False
+    make_wheels(use_package=True, use_recipe=use_recipe, py_version=py_version)
+
+    make_default_webapp(tag=tag, image_type=image_type, push=True, instance=instance, py_version=py_version)
 
 
 @task
-def release_code(tag: str = None, upload_wheel: bool = False) -> None:
+def release_code(tag: str = None, upload_wheel: bool = False, no_push: bool = False) -> None:
     """Commit, tag, push to GitHub and optionally upload wheel to dstack-factory for archiving
 
     Note:
@@ -402,13 +418,15 @@ def release_code(tag: str = None, upload_wheel: bool = False) -> None:
     Args:
         tag: Optional. Specify a SemVer compliant version code to force a specific version. (Deprecated?)
         upload_wheel: Default = False. If True, uploads wheel file to your dstack-factory for building.
+        no_push: Default = False. If True, does not push tag to git repo.
 
     Example:
-        fab e release_code
+        fab e release_code:upload_wheel=True,hosts=host.name
 
         If successful, the next step is to run ``make_wheels``
 
     """
+
     # Only use SemVer major.minor.patch version tag for git releases
     tag = tag or '.'.join(env.tag.split('.')[:3])
     print(yellow('The current version is: {version}. The release tag will be: {tag}'.format(
@@ -420,13 +438,15 @@ def release_code(tag: str = None, upload_wheel: bool = False) -> None:
         return exit(1)
     else:
         if tag == 'latest':
-            git('push origin master')
+            if not no_push:
+                git('push origin master')
         else:
             try:
                 git('tag v{tag}'.format(tag=tag))
             except SystemExit:
                 print(yellow('Git tag already exists'))
-            git('push origin v{tag}'.format(tag=tag))
+            if not no_push:
+                git('push origin v{tag}'.format(tag=tag))
             env.version = tag
             env.tag = tag
 
@@ -437,7 +457,8 @@ def release_code(tag: str = None, upload_wheel: bool = False) -> None:
             build_dir = dirify(env.build_dir, force_posix=True)
             wheel = '{package}-{tag}-py3-none-any.whl'.format(package=env.project_name, tag=env.tag)
 
-            filer(cmd='put', local_path=os.path.join('dist', wheel), remote_path=build_dir('archive/'))
+            filer(cmd='put', local_path=os.path.join('dist', wheel), remote_path=build_dir('archive/'), fix_perms=False)
+            s3cp(file_path='dist/' + wheel, direction='up')
 
 
 @task
