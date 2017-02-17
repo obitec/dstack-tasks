@@ -1,3 +1,4 @@
+version.txt
 .env
 fabfile.py
 __pycache__
