@@ -108,6 +108,7 @@ setup(
         'python-dotenv>=0.5.1',
         'requests',
         'sh',
+        'PyYAML',
     ],
 
     # List additional groups of dependencies here (e.g. development
