@@ -141,7 +141,7 @@ def update_runtime(ctx, project_name, version):
     # docker-compose build webapp
     # docker-compose up -d django
 
-    s3cp(ctx, file_path=f'dist/{project_name}-{version}-py3-none-any.whl')
+    s3cp(ctx, file_path=f'dist/{project_name}-{version}-py3-none-any.whl', project_name=project_name)
 
     project = get_project(project_dir='./')
     project.build(service_names='webapp')
