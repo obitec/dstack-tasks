@@ -174,7 +174,13 @@ def release(ctx, project_name=None, version=None):
     if env.dry_run:
         print(sh.git.tag.bake(version))
     else:
-        sh.git.tag(version)
+        try:
+            sh.git.tag(version)
+        except sh.ErrorReturnCode:
+            print('Tag already exists!')
+            return False
+            # sh.git.tag('-d', version)
+            # sh.git.tag(version)
 
     do(ctx, cmd='rm -rf dist/ build/ *.egg-info/')
     python(ctx, cmd='setup.py bdist_wheel', venv=True)
