@@ -27,6 +27,7 @@ def deploy(ctx, project_name=None, version='0.0.0'):
     Returns: Project status
 
     """
+
     project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
 
     # aws s3 cp s3://dstack-storage/plant_secure/deploy/plant_secure-0.16.18-py3-none-any.whl ./
