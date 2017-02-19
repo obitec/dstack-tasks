@@ -1,7 +1,10 @@
 import os
 import sys
 
+from setuptools_scm import get_version
+import sh
 from compose.cli.command import get_project
+from dotenv import set_key
 from invoke import Config
 from invoke import run, task
 from invoke.env import Environment
@@ -135,22 +138,50 @@ def s3cp(ctx, file_path, direction='down', bucket='s3://dstack-storage', project
 
 
 @task
-def update_runtime(ctx, project_name, version):
+def deploy(ctx, project_name=None, version='0.0.0'):
+    """
+
+    :param ctx:
+    :param project_name: As written the *.whl file.
+    :param version: As stored in the *.whl file, e.g. 1.0.0
+    :return:
+    """
+    project_name = project_name or os.path.basename(os.getcwd())
+
     # aws s3 cp s3://dstack-storage/plant_secure/deploy/plant_secure-0.16.18-py3-none-any.whl ./
-
-    # docker-compose build webapp
-    # docker-compose up -d django
-
     s3cp(ctx, file_path=f'dist/{project_name}-{version}-py3-none-any.whl', project_name=project_name)
 
+    # dotenv -f .env -q auto set VERSION version
+    set_key(dotenv_path='.env', key_to_set='VERSION', value_to_set=version, quote_mode='auto')
+    # dotenv -f .local/webapp.env -q auto set VERSION version
+    set_key(dotenv_path='.local/webapp.env', key_to_set='VERSION', value_to_set=version, quote_mode='auto')
+
     project = get_project(project_dir='./')
+    # docker-compose build webapp
     project.build(service_names=['webapp', ])
+    # docker-compose up -d django
     project.up(service_names=['webapp', ], detached=True)
 
-    # compose(ctx, 'build webapp')
-    # compose(ctx, 'up -d django')
 
-    pass
+@task
+def release(ctx, project_name=None, version=None):
+    project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
+    scm_version = get_version()
+
+    print(f'Git version: {scm_version}')
+    version = version or '.'.join(scm_version.split('.')[:3])
+
+    if env.dry_run:
+        print(sh.git.tag.bake(version))
+    else:
+        sh.git.tag(version)
+
+    do(ctx, cmd='rm -rf dist/ build/ *.egg-info/')
+    python(ctx, cmd='setup.py bdist_wheel', venv=True)
+
+    s3cp(ctx, file_path=f'dist/{project_name}-{version}-py3-none-any.whl', direction='up', project_name=project_name)
+
+
 
 
 @task
