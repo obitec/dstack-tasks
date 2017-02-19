@@ -103,6 +103,7 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
         'awscli',
+        'docker-compose',
         'invoke',
         'python-dotenv>=0.5.1',
         'requests',

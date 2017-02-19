@@ -1,6 +1,7 @@
 import os
 import sys
 
+from compose.cli.command import get_project
 from invoke import Config
 from invoke import run, task
 from invoke.env import Environment
@@ -11,8 +12,9 @@ env = Environment(config=conf, prefix='')
 env.load()
 
 env.directory = './'
-# env.activate = 'source venv/bin/activate && '
-env.activate = 'source activate plant_secure && '
+env.activate = 'source venv/bin/activate && '
+
+# env.activate = 'source activate project_name && '
 
 env.dry_run = False
 
@@ -112,6 +114,43 @@ def python(ctx, cmd='--help', venv=True, **kwargs):
 @task
 def pip(ctx, cmd='list', venv=True, **kwargs):
     return python(ctx, cmd=f'-m pip {cmd}', venv=venv, **kwargs)
+
+
+@task
+def s3cp(ctx, file_path, direction='down', bucket='s3://dstack-storage', project_name='default', **kwargs):
+    """
+
+    :param ctx:
+    :param file_path:
+    :param direction:
+    :param bucket:
+    :param project_name:
+    :param kwargs:
+    :return:
+    """
+    remote_path = f'{bucket}/{project_name}/{file_path}'
+    cmd = f'cp {file_path} {remote_path}' if direction == 'up' else f'cp {remote_path} {file_path}'
+
+    return do(ctx, cmd=f'aws s3 {cmd}', **kwargs)
+
+
+@task
+def update_runtime(ctx, project_name, version):
+    # aws s3 cp s3://dstack-storage/plant_secure/deploy/plant_secure-0.16.18-py3-none-any.whl ./
+
+    # docker-compose build webapp
+    # docker-compose up -d django
+
+    s3cp(ctx, file_path=f'dist/{project_name}-{version}-py3-none-any.whl')
+
+    project = get_project(project_dir='./')
+    project.build(service_names='webapp')
+    project.up(service_names='webapp', detached=True)
+
+    # compose(ctx, 'build webapp')
+    # compose(ctx, 'up -d django')
+
+    pass
 
 
 @task
