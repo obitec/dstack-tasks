@@ -169,6 +169,10 @@ def release(ctx, project_name=None, version=None):
     scm_version = get_version()
 
     print(f'Git version: {scm_version}')
+    if len(scm_version.split('.')) > 3:
+        print('First commit all changes, then run this task again')
+        return False
+
     version = version or '.'.join(scm_version.split('.')[:3])
 
     if env.dry_run:
