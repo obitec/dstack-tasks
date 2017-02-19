@@ -144,8 +144,8 @@ def update_runtime(ctx, project_name, version):
     s3cp(ctx, file_path=f'dist/{project_name}-{version}-py3-none-any.whl', project_name=project_name)
 
     project = get_project(project_dir='./')
-    project.build(service_names='webapp')
-    project.up(service_names='webapp', detached=True)
+    project.build(service_names=['webapp', ])
+    project.up(service_names=['webapp', ], detached=True)
 
     # compose(ctx, 'build webapp')
     # compose(ctx, 'up -d django')
