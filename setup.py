@@ -108,7 +108,7 @@ setup(
         'python-dotenv>=0.5.1',
         'requests',
         'sh',
-        'PyYAML',
+        'setuptools_scm',
     ],
 
     # List additional groups of dependencies here (e.g. development
