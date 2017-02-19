@@ -27,7 +27,7 @@ setup(
          'write_to': 'version.txt',
     },
     # version=version_string,
-    #version='1.0.6',
+    # version='1.0.6',
 
     description=(
         "CLI that accompanies dstack-factory for building and publishing "
@@ -45,7 +45,7 @@ setup(
     # Choose your license
     license='MIT License',
 
-    # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
+    # See https://pypi.python.org/pypi?:action=list_classifiers
     classifiers=[
         # How mature is this project? Common values are
         #   3 - Alpha
