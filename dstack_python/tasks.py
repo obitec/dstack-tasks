@@ -8,7 +8,7 @@ from invoke import task
 from setuptools_scm import get_version
 
 from .base import do, env
-from .wrap import docker, git, python, s3cp
+from .wrap import docker, git, python, s3
 from compose.cli.main import TopLevelCommand
 
 
@@ -18,7 +18,7 @@ def test(ctx):
 
 
 @task
-def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run=True, migrate=False):
+def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run=True, migrate=False, static=False):
     """Download wheel from s3, set .env variables, build project and up it.
 
     Args:
@@ -28,6 +28,7 @@ def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run=True, 
         project_name: The name of the python package. If None, uses directory name with '_' replacing '-'.
         version: The python package version to deploy.
         migrate: If True, migrates
+        static: Default = False. If True, also updates static files.
 
     Returns: Project status
 
@@ -36,7 +37,7 @@ def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run=True, 
     project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
 
     # aws s3 cp s3://dstack-storage/plant_secure/deploy/plant_secure-0.16.18-py3-none-any.whl ./
-    s3cp(ctx, file_path=f'dist/{project_name}-{version}-py3-none-any.whl', project_name=project_name)
+    s3(ctx, simple_path=f'dist/{project_name}-{version}-py3-none-any.whl', direction='down', project_name=project_name)
 
     # dotenv -f .env -q auto set VERSION version
     set_key(dotenv_path='.env', key_to_set='VERSION', value_to_set=version, quote_mode='auto')
@@ -58,7 +59,28 @@ def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run=True, 
         options = docopt(tlc.run.__doc__.decode(), argv=['--rm', 'webapp', 'dstack migrate'], options_first=True)
         tlc.run(options=options)
 
+    if static:
+        # TODO: Implement?
+        pass
+
     return None
+
+
+@task
+def deploy_static(ctx, project_name=None, version=1):
+    """Deploy static files
+
+    Args:
+        ctx:
+        project_name:
+        version:
+
+    Returns:
+
+    """
+    project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
+
+    s3(ctx, cmd='sync --exact-timestamps', direction='down', simple_path='.local/static/', s3_path=f'{project_name}/static/v{version}/')
 
 
 # from compose.cli.main import TopLevelCommand
@@ -101,8 +123,8 @@ def release(ctx, project_name=None, version=None, upload=True, push=False):
         git(f'push origin v{version}')
 
     if upload:
-        s3cp(ctx, file_path=f'dist/{project_name}-{version}-py3-none-any.whl',
-             direction='up', project_name=project_name)
+        s3(ctx, simple_path=f'dist/{project_name}-{version}-py3-none-any.whl', direction='up',
+           project_name=project_name)
 
 
 @task
