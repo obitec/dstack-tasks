@@ -94,8 +94,12 @@ def execute(cmd: str = '--help', path: str = None, live: bool = None, **kwargs):
     if path is None:
         path = env.project_dir if live else ''
 
-    with cd(path):
-        env.pwd = path
+    if path != '':
+        with cd(path):
+            env.pwd = path
+            run(cmd, **kwargs) if live else local(cmd, **kwargs)
+    else:
+        env.pwd = None
         run(cmd, **kwargs) if live else local(cmd, **kwargs)
 
 
@@ -362,33 +366,54 @@ def s3(cmd: str = 'help', live: bool = None) -> None:
         live = env.live
 
     # TODO: Raise error if awscli is not installed
-    execute('aws s3 {cmd}'.format(cmd=cmd, live=live))
+    execute('aws s3 {cmd}'.format(cmd=cmd, live=live), path='')
 
 
 @task
-def s3cp(file_path: str, direction: str = 'up', bucket: str = 's3://dstack-storage', live: bool = None) -> None:
-    """
+def s3cp(simple_path: str = None, direction: str = 'up', local_path: str = None, s3_path: str = None,
+         bucket: str = 's3://dstack-storage', live: bool = None) -> None:
+    """Wrapper for copying files to and from s3 bucket.
 
     Args:
-        file_path:
-        direction:
-        bucket:
-        live:
+        simple_path: If specified, constructs local_path and s3_uri from relative path provided, keeping same directory
+            structure on s3 and locally.
+        direction: `up` or `down`.
+        bucket: Default s3://dstack-storage.
+        local_path: Local relative path
+        s3_path: Path on s3 bucket.
+        live: Run local or on server. If live = True, then "local_path" means local path on server.
 
     Returns:
+
+    Raises:
+        AttributeError: When neither simple_path nor s3_path and local_path are specified.
 
     """
     if live is None:
         live = env.live
 
-    remote_path = '{bucket}/{project_name}/{file_path}'.format(
-        file_path=file_path, bucket=bucket, project_name=env.project_name)
+    if simple_path is not None:
+        if s3_path is None:
+            s3_uri = '{bucket}/{project_name}/{simple_path}'.format(
+                simple_path=simple_path, bucket=bucket, project_name=env.project_name)
+        else:
+            s3_uri = '{bucket}/{s3_path}'.format(bucket=bucket, s3_path=s3_path)
 
-    up_template = 'cp {file_path} {remote_path}'.format(
-        file_path=file_path, remote_path=remote_path)
+        if local_path is None:
+            local_path = simple_path
 
-    down_template = 'cp {remote_path} {file_path}'.format(
-        file_path=file_path, remote_path=remote_path)
+    elif s3_path and local_path:
+        s3_uri = '{bucket}/{s3_path}'.format(bucket=bucket, s3_path=s3_path)
+        local_path = local_path
+
+    else:
+        raise AttributeError('Must specify either simple path or both s3_path and local_path')
+
+    up_template = 'cp {local_path} {s3_uri}'.format(
+        local_path=local_path, s3_uri=s3_uri)
+
+    down_template = 'cp {s3_uri} {local_path}'.format(
+        local_path=local_path, s3_uri=s3_uri)
 
     s3(cmd=up_template if direction == 'up' else down_template, live=live)
 
