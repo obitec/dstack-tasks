@@ -18,10 +18,12 @@ def test(ctx):
 
 
 @task
-def deploy(ctx, project_name=None, version='0.0.0', migrate=False):
+def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run=True, migrate=False):
     """Download wheel from s3, set .env variables, build project and up it.
 
     Args:
+        run:
+        service:
         ctx:
         project_name: The name of the python package. If None, uses directory name with '_' replacing '-'.
         version: The python package version to deploy.
@@ -43,9 +45,11 @@ def deploy(ctx, project_name=None, version='0.0.0', migrate=False):
 
     project = get_project(project_dir='./')
     # docker-compose build webapp
-    project.build(service_names=['webapp', ])
-    # docker-compose up -d django
-    project.up(service_names=['webapp', ], detached=True)
+    project.build(service_names=[service, ])
+
+    if run:
+        # docker-compose up -d django
+        project.up(service_names=[service, ], detached=True)
 
     # docker-compose run --rm webapp dstack migrate
     if migrate:
