@@ -2,12 +2,14 @@ import os
 
 import sh
 from compose.cli.command import get_project
+from docopt import docopt
 from dotenv import set_key
 from invoke import task
 from setuptools_scm import get_version
 
 from .base import do, env
 from .wrap import docker, git, python, s3cp
+from compose.cli.main import TopLevelCommand
 
 
 @task
@@ -16,13 +18,14 @@ def test(ctx):
 
 
 @task
-def deploy(ctx, project_name=None, version='0.0.0'):
+def deploy(ctx, project_name=None, version='0.0.0', migrate=False):
     """Download wheel from s3, set .env variables, build project and up it.
 
     Args:
         ctx:
         project_name: The name of the python package. If None, uses directory name with '_' replacing '-'.
         version: The python package version to deploy.
+        migrate: If True, migrates
 
     Returns: Project status
 
@@ -43,6 +46,23 @@ def deploy(ctx, project_name=None, version='0.0.0'):
     project.build(service_names=['webapp', ])
     # docker-compose up -d django
     project.up(service_names=['webapp', ], detached=True)
+
+    # docker-compose run --rm webapp dstack migrate
+    if migrate:
+        # TODO: Backup postgres
+        tlc = TopLevelCommand(project=project)
+        options = docopt(tlc.run.__doc__.decode(), argv=['--rm', 'webapp', 'dstack migrate'], options_first=True)
+        tlc.run(options=options)
+
+    return None
+
+
+# from compose.cli.main import TopLevelCommand
+# +>>> from compose.cli.command import get_project
+# +>>> project = get_project(project_dir='./')
+# +>>> tlc = TopLevelCommand(project=project)
+# +>>> d = tlc.run.__doc__
+# +>>> docopt(d, )
 
 
 @task
