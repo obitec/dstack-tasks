@@ -109,11 +109,12 @@ def release(ctx, project_name=None, version=None, upload=True, push=False):
     if env.dry_run:
         print(sh.git.tag.bake(f'v{version}'))
     else:
-        try:
-            sh.git.tag(f'v{version}')
-        except sh.ErrorReturnCode:
-            print('Tag already exists!')
-            return False
+        if scm_version != version:
+            try:
+                sh.git.tag(f'v{version}')
+            except sh.ErrorReturnCode:
+                print('Tag already exists!')
+                return False
 
     # Clean and build
     do(ctx, cmd='rm -rf dist/ build/ *.egg-info/')
