@@ -5,7 +5,7 @@ from typing import Union
 
 from fabric.api import env
 from fabric.colors import yellow, red
-from fabric.context_managers import prefix
+from fabric.context_managers import prefix, settings
 from fabric.decorators import task
 from fabric.operations import prompt, local, run
 from .utils import dirify, vc
@@ -15,7 +15,8 @@ import os.path
 
 @task
 def make_wheels(use_package: Union[str, bool] = None, use_recipe: Union[str, bool] = None,
-                clear_wheels: bool = True, interactive: bool = True, py_version: str = '3.5') -> bool:
+                clear_wheels: bool = True, interactive: bool = True,
+                py_version: str = '3.5', c_ext: bool = True) -> bool:
     """Build wheels for python packages
 
     Creates wheel package for each dependency specified in build-reqs.txt (if it exists) else
@@ -42,6 +43,7 @@ def make_wheels(use_package: Union[str, bool] = None, use_recipe: Union[str, boo
         interactive: Default = True. Whether this task should prompt questions and reminders like reminding you
             to first upload your wheel package.
         py_version: Default = 3.5. Python 3.6 is also supported.
+        c_ext: Default = True. Whether to build cython and numpy before rest of dependencies.
 
     See also:
         :py:func:`make_default_webapp` Uses these wheels to create a docker runtime with only the minimal
@@ -118,15 +120,24 @@ def make_wheels(use_package: Union[str, bool] = None, use_recipe: Union[str, boo
             if interactive:
                 answer = prompt('Did you remember to upload wheel package to dstack-factory archive?', default='yes')
             else:
-                answer = 'yes'
+                answer = 'no'
 
-            if answer == 'yes':
-                package, tag = use_package.split('-', maxsplit=2)[:2]
-                use_recipe = io.StringIO('{package}=={tag}'.format(package=package, tag=tag))
-            else:
-                # raise FileExistsError('First upload the file before you continue!')
-                print(red('ERROR: First upload the file before you continue'))
-                return exit(1)
+            package, tag = use_package.split('-', maxsplit=2)[:2]
+            use_recipe = io.StringIO('{package}=={tag}'.format(package=package, tag=tag))
+
+            if answer == 'no':
+                wheel = '{package}-{tag}-py3-none-any.whl'.format(package=package, tag=tag)
+
+                with settings(warn_only=True):
+                    s3cp(simple_path='dist/{wheel}'.format(wheel=wheel),
+                         local_path=build_dir('archive/'),
+                         direction='down',
+                         live=True)
+
+            # else:
+            #     raise FileExistsError('First upload the file before you continue!')
+            #     print(red('ERROR: First upload the file before you continue'))
+            #     return exit(1)
         else:
             # e.g. make_wheels(use_package='django==1.10')
             use_recipe = io.StringIO(use_package)
@@ -151,8 +162,8 @@ def make_wheels(use_package: Union[str, bool] = None, use_recipe: Union[str, boo
     filer(cmd='put', local_path=use_recipe, remote_path=build_dir('recipes/{}.txt'.format(recipe_filename)))
 
     execute(
-        cmd='export RECIPE={} PY_VERSION={} && docker-compose run --rm factory'.format(
-            recipe_filename, py_version),
+        cmd='export RECIPE={} PY_VERSION={} CEXT={} && docker-compose run --rm factory'.format(
+            recipe_filename, py_version, c_ext),
         path=build_dir(''))
     # compose(cmd='run --rm factory', path=build_dir(''))
 
@@ -242,7 +253,7 @@ def make_default_webapp(tag: str = None, image_type: str = 'wheel', push: bool =
         filer(cmd='put', local_path='./requirements.txt', remote_path=build_dir('requirements.txt'))
 
     execute(
-        cmd='sed -e "s/PY_VERSION/{}/g" Dockerfile{}.template > Dockerfile'.format(py_version, build_extension),
+        cmd='sed -e "s/PY_VERSION/{0}/g" Dockerfile{1}.template > Dockerfile{1}'.format(py_version, build_extension),
         path=build_dir(''), live=True)
 
     docker_tag = '{image_name}:{tag}'.format(image_name=env.image_name, tag=tag)
@@ -381,7 +392,8 @@ def build_code(live: bool = False, migrate: bool = False) -> None:
 
 
 @task
-def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = None, py_version: str = '3.5') -> None:
+def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = None,
+                    py_version: str = '3.5', c_ext: bool = True) -> None:
     """Rebuilds the docker container for the python runtime and push a tag image to to DockerHub.
 
     Note:
@@ -392,6 +404,7 @@ def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = 
         image_type: See :py:func:`make_default_webapp` for options.
         instance: See :py:func:`make_default_webapp`.
         py_version: See :py:func:`make_default_webapp`.
+        c_ext: See :py:func:`make_wheels`.
 
     Returns:
         None
@@ -403,7 +416,7 @@ def release_runtime(tag: str = None, image_type: str = 'wheel', instance: str = 
     use_recipe = True
     if not os.path.exists('build-reqs.txt'):
         use_recipe = False
-    make_wheels(use_package=True, use_recipe=use_recipe, py_version=py_version)
+    make_wheels(use_package=True, use_recipe=use_recipe, py_version=py_version, c_ext=c_ext, interactive=False)
 
     make_default_webapp(tag=tag, image_type=image_type, push=True, instance=instance, py_version=py_version)
 
@@ -453,22 +466,24 @@ def release_code(tag: str = None, upload_wheel: bool = False, no_push: bool = Fa
         execute('rm -rf dist/ build/ *.egg-info/ && python setup.py build bdist_wheel')
 
         if upload_wheel:
-            # TODO: upload to s3
-            build_dir = dirify(env.build_dir, force_posix=True)
             wheel = '{package}-{tag}-py3-none-any.whl'.format(package=env.project_name, tag=env.tag)
+            s3cp(simple_path='dist/' + wheel, direction='up')
 
-            filer(cmd='put', local_path=os.path.join('dist', wheel), remote_path=build_dir('archive/'), fix_perms=False)
-            s3cp(file_path='dist/' + wheel, direction='up')
+            # build_dir = dirify(env.build_dir, force_posix=True)
+            # filer(cmd='put', local_path=os.path.join('dist', wheel),
+            #       remote_path=build_dir('archive/'), fix_perms=False)
 
 
 @task
-def release_data() -> None:
+def release_data(version: str, live: bool = None) -> None:
     """Backup and upload tagged version of database
 
     Note:
         This task is safe, it does not affect the production runtime!
 
     Args:
+        version: The version of the static files
+        live:
         tag: Name of release, preferably a SemVer version number
 
     Returns:
@@ -478,10 +493,16 @@ def release_data() -> None:
         * Implement S3(?) database/fixture/view storage
         * Implement cloud storage for media + static files
     """
+    if live is None:
+        live = env.live
+
+    manage(cmd='collectstatic --no-input -v1 -i src -i demo -i test -i docs', live=live)
+    # s3cp(simple_path='.local/static/',  s3_path='{}/static/{}'.format(env.project_name, version))
+    s3(cmd='sync .local/static/ s3://dstack-storage/{}/static/{}/'.format(env.project_name, version))
+
     # TODO: Implement S3(?) database/fixture/view storage
     # TODO: Implement cloud storage for media + static files
     print('Not implemented! ')
-
     # raise NotImplementedError
 
 
