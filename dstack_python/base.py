@@ -1,6 +1,7 @@
 import os
 import sys
 
+from fabric.colors import red
 from invoke import Config
 from invoke import run, task
 from invoke.env import Environment
@@ -40,7 +41,7 @@ def do(ctx, cmd, dry_run=None, **kwargs):
         ctx:
         cmd: The command to execute, e.g. 'ls'
         dry_run: Override the the env.dry_run variable.
-        **kwargs:
+        **kwargs: path, host, 
 
     Returns:
 
@@ -66,7 +67,7 @@ def do(ctx, cmd, dry_run=None, **kwargs):
             cmd_str.append(f'cd {path}')
         cmd_str.append(cmd)
 
-        print(' && '.join(cmd_str))
+        print(red('local:'), ' && '.join(cmd_str))
 
     else:
         if not path:
@@ -74,11 +75,3 @@ def do(ctx, cmd, dry_run=None, **kwargs):
         else:
             with cd(path):
                 return run(cmd, env=run_env, **kwargs)
-
-
-@task
-def mkdir(ctx, path):
-    if sys.platform == 'win32':
-        do(ctx, f'mkdir {path}')
-    elif sys.platform == 'unix':
-        do(ctx, f'mkdir -p {path}')

@@ -2,32 +2,32 @@ import os
 
 import sh
 from compose.cli.command import get_project
+from compose.cli.main import TopLevelCommand
 from docopt import docopt
 from dotenv import set_key
 from invoke import task
 from setuptools_scm import get_version
 
 from .base import do, env
-from .wrap import docker, git, python, s3
-from compose.cli.main import TopLevelCommand
+from .wrap import compose, docker, python, s3
 
 
 @task
-def test(ctx):
-    do(ctx, 'ls')
+def test(ctx, cmd='uname -a', path='.'):
+    do(ctx, cmd=cmd, path=path, env={'foo': 'bar'})
 
 
 @task
-def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run=True, migrate=False, static=False):
+def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run_service=True, migrate=False, static=False):
     """Download wheel from s3, set .env variables, build project and up it.
 
     Args:
-        run:
-        service:
         ctx:
+        run_service: Default = True. Runs the service after building it.
+        service: The docker compose service as specified in the compose file. E.g. 'django'.
         project_name: The name of the python package. If None, uses directory name with '_' replacing '-'.
         version: The python package version to deploy.
-        migrate: If True, migrates
+        migrate: If True, migrates the database.
         static: Default = False. If True, also updates static files.
 
     Returns: Project status
@@ -36,28 +36,53 @@ def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run=True, 
 
     project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
 
-    # aws s3 cp s3://dstack-storage/plant_secure/deploy/plant_secure-0.16.18-py3-none-any.whl ./
-    s3(ctx, simple_path=f'dist/{project_name}-{version}-py3-none-any.whl', direction='down', project_name=project_name)
+    extends = ['django', 'celery_worker', 'celery_beat']
+    base_service = service if service not in extends else 'webapp'
 
-    # dotenv -f .env -q auto set VERSION version
-    set_key(dotenv_path='.env', key_to_set='VERSION', value_to_set=version, quote_mode='auto')
-    # dotenv -f .local/webapp.env -q auto set VERSION version
-    set_key(dotenv_path='.local/webapp.env', key_to_set='VERSION', value_to_set=version, quote_mode='auto')
+    # aws s3 cp s3://dstack-storage/toolset/deploy/toolset-0.16.18-py3-none-any.whl ./
+    s3(ctx,
+       s3_path=f'{project_name}/dist/{project_name}-{version}-py3-none-any.whl',
+       local_path=f'stack/{base_service}/',
+       direction='down',
+       project_name=project_name)
+    # substitute django service for webapp
 
-    project = get_project(project_dir='./')
-    # docker-compose build webapp
-    project.build(service_names=[service, ])
+    if not env.dry_run:
+        # dotenv -f .env -q auto set VERSION version
+        set_key(dotenv_path='.env', key_to_set='VERSION', value_to_set=version, quote_mode='auto')
+        # dotenv -f .local/webapp.env -q auto set VERSION version
+        set_key(dotenv_path='stack/{base_service}/.env',
+                key_to_set='RELEASE_TAG', value_to_set=version, quote_mode='auto')
+    else:
+        print(f'dotenv -f .env -q auto set VERSION {version}')
+        print(f'dotenv -f stack/{base_service}/.env -q auto set RELEASE_TAG {version}')
 
-    if run:
+    project = get_project(
+        project_dir=os.path.abspath('./'),
+        config_path=['local-compose.yml'])
+
+    if not env.dry_run:
+        # docker-compose build webapp
+        project.build(service_names=[base_service, ])
+    else:
+        print(f'docker-compose build {base_service}')
+
+    if run_service:
         # docker-compose up -d django
-        project.up(service_names=[service, ], detached=True)
+        if not env.dry_run:
+            project.up(service_names=[service, ], detached=True)
+        else:
+            print(f'docker-compose up -d {service}')
 
     # docker-compose run --rm webapp dstack migrate
     if migrate:
-        # TODO: Backup postgres
-        tlc = TopLevelCommand(project=project)
-        options = docopt(tlc.run.__doc__.decode(), argv=['--rm', 'webapp', 'dstack migrate'], options_first=True)
-        tlc.run(options=options)
+        if not env.dry_run:
+            # TODO: Backup postgres
+            tlc = TopLevelCommand(project=project)
+            options = docopt(str(tlc.run.__doc__), argv=['--rm', 'webapp', 'dstack migrate'], options_first=True)
+            tlc.run(options=options)
+        else:
+            print('docker-compose run --rm django dstack migrate')
 
     if static:
         # TODO: Implement?
@@ -80,7 +105,8 @@ def deploy_static(ctx, project_name=None, version=1):
     """
     project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
 
-    s3(ctx, cmd='sync --exact-timestamps', direction='down', simple_path='.local/static/', s3_path=f'{project_name}/static/v{version}/')
+    s3(ctx, cmd='sync --exact-timestamps', direction='down',
+       simple_path='.local/static/', s3_path=f'{project_name}/static/v{version}/')
 
 
 # from compose.cli.main import TopLevelCommand
@@ -90,7 +116,7 @@ def deploy_static(ctx, project_name=None, version=1):
 # +>>> d = tlc.run.__doc__
 # +>>> docopt(d, )
 
-
+# TODO: See what invoke did in their release task that requires a specific branch
 @task
 def release(ctx, project_name=None, version=None, upload=True, push=False):
     """Tag, build and optionally push and upload new project release
@@ -117,11 +143,11 @@ def release(ctx, project_name=None, version=None, upload=True, push=False):
                 return False
 
     # Clean and build
-    do(ctx, cmd='rm -rf dist/ build/ *.egg-info/')
+    do(ctx, cmd='rm -rf dist/ build/')
     python(ctx, cmd='setup.py bdist_wheel', venv=True)
 
     if push:
-        git(f'push origin v{version}')
+        sh.git.push(f'origin v{version}')
 
     if upload:
         s3(ctx, simple_path=f'dist/{project_name}-{version}-py3-none-any.whl', direction='up',
@@ -139,3 +165,21 @@ def docker_ps(ctx):
     print(containers)
 
     return containers
+
+
+@task
+def migrate(ctx):
+    compose(ctx, 'run --rm django dstack migrate')
+
+
+@task
+def update(ctx):
+    s3(ctx, direction='down', local_path='tasks.py', s3_path='plant_secure/stack/tasks.py')
+
+@task
+def run_test(ctx):
+    compose(ctx, cmd='build webapp')
+    compose(ctx, cmd='build superset')
+    compose(ctx, cmd='up -d django')
+    compose(ctx, cmd='up -d superset')
+    compose(ctx, cmd='up -d nginx-local')
