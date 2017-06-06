@@ -105,6 +105,7 @@ setup(
         'awscli',
         'docker-compose',
         'invoke',
+        'fabric>2.0.0',
         'python-dotenv>=0.5.1',
         'requests',
         'sh',
