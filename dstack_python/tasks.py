@@ -1,6 +1,5 @@
 import os
 
-import sh
 from compose.cli.command import get_project
 from compose.cli.main import TopLevelCommand
 from docopt import docopt
@@ -9,7 +8,7 @@ from invoke import task
 from setuptools_scm import get_version
 
 from .base import do, env
-from .wrap import compose, docker, python, s3
+from .wrap import compose, docker, python, s3cmd, git
 
 
 @task
@@ -19,7 +18,7 @@ def test(ctx, cmd='uname -a', path='.'):
 
 @task
 def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run_service=True, migrate=False, static=False):
-    """Download wheel from s3, set .env variables, build project and up it.
+    """Download wheel from s3cmd, set .env variables, build project and up it.
 
     Args:
         ctx:
@@ -39,12 +38,12 @@ def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run_servic
     extends = ['django', 'celery_worker', 'celery_beat']
     base_service = service if service not in extends else 'webapp'
 
-    # aws s3 cp s3://dstack-storage/toolset/deploy/toolset-0.16.18-py3-none-any.whl ./
-    s3(ctx,
-       s3_path=f'{project_name}/dist/{project_name}-{version}-py3-none-any.whl',
-       local_path=f'stack/{base_service}/',
-       direction='down',
-       project_name=project_name)
+    # aws s3cmd cp s3cmd://dstack-storage/toolset/deploy/toolset-0.16.18-py3-none-any.whl ./
+    s3cmd(ctx,
+          s3_path=f'{project_name}/dist/{project_name}-{version}-py3-none-any.whl',
+          local_path=f'stack/{base_service}/',
+          direction='down',
+          project_name=project_name)
     # substitute django service for webapp
 
     if not env.dry_run:
@@ -105,8 +104,8 @@ def deploy_static(ctx, project_name=None, version=1):
     """
     project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
 
-    s3(ctx, cmd='sync --exact-timestamps', direction='down',
-       simple_path='.local/static/', s3_path=f'{project_name}/static/v{version}/')
+    s3cmd(ctx, cmd='sync --exact-timestamps', direction='down',
+          simple_path='.local/static/', s3_path=f'{project_name}/static/v{version}/')
 
 
 # from compose.cli.main import TopLevelCommand
@@ -118,40 +117,45 @@ def deploy_static(ctx, project_name=None, version=1):
 
 # TODO: See what invoke did in their release task that requires a specific branch
 @task
-def release(ctx, project_name=None, version=None, upload=True, push=False):
+def release_code(ctx, project_name=None, version=None, upload=True, push=False, static=True, build=True):
     """Tag, build and optionally push and upload new project release
 
     """
+    # TODO set project name in ctx
     project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
     scm_version = get_version()
-
-    print(f'Git version: {scm_version}')
-    if len(scm_version.split('.')) > 4:
-        print('First commit all changes, then run this task again')
-        return False
-
     version = version or '.'.join(scm_version.split('.')[:3])
 
-    if env.dry_run:
-        print(sh.git.tag.bake(f'v{version}'))
-    else:
-        if scm_version != version:
-            try:
-                sh.git.tag(f'v{version}')
-            except sh.ErrorReturnCode:
-                print('Tag already exists!')
-                return False
+    if build:
+        print(f'Git version: {scm_version}')
+        if len(scm_version.split('.')) > 4:
+            print('First commit all changes, then run this task again')
+            return False
 
-    # Clean and build
-    do(ctx, cmd='rm -rf dist/ build/')
-    python(ctx, cmd='setup.py bdist_wheel', venv=True)
+        if scm_version != version:
+            git(ctx, f'tag v{version}')
+
+        # Clean and build
+        do(ctx, cmd='rm -rf build/')
+        python(ctx, cmd='setup.py bdist_wheel', conda_env=True)
 
     if push:
-        sh.git.push(f'origin v{version}')
+        git(ctx, f'push origin v{version}')
 
     if upload:
-        s3(ctx, simple_path=f'dist/{project_name}-{version}-py3-none-any.whl', direction='up',
-           project_name=project_name)
+        s3cmd(ctx, simple_path=f'dist/{project_name}-{version}-py3-none-any.whl', direction='up',
+              project_name=project_name)
+
+    # aws s3 sync ./.local/static/ s3://dstack-storage/toolset/static/v1/
+    if static:
+        ignore = ['test', 'docs', '*.md', '*.txt', '*.sass', '*.less', 'ckeditor', '*.html', 'LICENSE', '*.coffee']
+        ignore_params = ' -i '.join(ignore)
+
+        python(ctx, cmd=f'./src/manage.py collectstatic -v0 -i {ignore_params}', conda_env=True)
+        # --exact-timestamps
+        # s3cmd(ctx, cmd='sync', local_path='./.local/static/', s3_path=f'static/v0.18.10/', exact_timestamps=True)
+        s3cmd(ctx, cmd='sync', local_path='./.local/static/', s3_path=f'{project_name}/static/v{ctx.tag}/', exact_timestamps=True)
+
 
 
 @task
@@ -174,7 +178,7 @@ def migrate(ctx):
 
 @task
 def update(ctx):
-    s3(ctx, direction='down', local_path='tasks.py', s3_path='plant_secure/stack/tasks.py')
+    s3cmd(ctx, direction='down', local_path='tasks.py', s3_path='plant_secure/stack/tasks.py')
 
 @task
 def run_test(ctx):
