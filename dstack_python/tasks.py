@@ -36,7 +36,7 @@ def deploy(ctx, project_name=None, version='0.0.0', service='webapp', run_servic
     project_name = project_name or os.path.basename(os.getcwd()).replace('-', '_')
 
     extends = ['django', 'celery_worker', 'celery_beat']
-    base_service = service if service not in extends else 'webapp'
+    base_service = service if service not in extends else '_webapp'
 
     # aws s3cmd cp s3cmd://dstack-storage/toolset/deploy/toolset-0.16.18-py3-none-any.whl ./
     s3cmd(ctx,

@@ -103,6 +103,7 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
         'awscli',
+        'boto3',
         'docker-compose',
         'invoke',
         'fabric>=2.0.0',
