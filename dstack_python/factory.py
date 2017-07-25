@@ -2,12 +2,11 @@ import io
 import os
 
 import colorama
-from dstack_tasks import docker
 from invoke import task
 
 from dstack_python.base import do, env
 from dstack_python.utils import dirify
-from dstack_python.wrap import filer, s3cmd, compose
+from dstack_python.wrap import filer, s3cmd, compose, docker
 
 colorama.init()
 
