@@ -1,7 +1,7 @@
 import pkg_resources
 from invoke import Argument, Collection, Program
 
-import dstack_python
+import dstack_tasks
 
 
 class MainProgram(Program):
@@ -13,5 +13,5 @@ class MainProgram(Program):
         return core_args + extra_args
 
 
-version = pkg_resources.get_distribution("dstack_python").version
-program = MainProgram(namespace=Collection.from_module(dstack_python), version=version)
+version = pkg_resources.get_distribution("dstack_tasks").version
+program = MainProgram(namespace=Collection.from_module(dstack_tasks), version=version)

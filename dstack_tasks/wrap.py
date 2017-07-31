@@ -60,7 +60,7 @@ def python(ctx, cmd='--help', venv=True, conda_env=False, **kwargs):
         ctx:
         cmd:
         venv:
-        conda_env: 
+        conda_env:
         **kwargs:
 
     Returns:
@@ -173,7 +173,7 @@ def postgres(ctx, cmd, project=None, tag='latest'):
         ctx:
         cmd:
         tag:
-        project: 
+        project:
 
     Returns:
 
@@ -223,6 +223,7 @@ def mkdir(ctx, path):
         do(ctx, f'mkdir -p {path}')
 
 
+# Local task
 # @task
 def filer(content, key, bucket_name='dstack-storage', dry_run=False):
     # import pdb; pdb.set_trace()

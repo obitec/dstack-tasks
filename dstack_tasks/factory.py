@@ -4,9 +4,9 @@ import os
 import colorama
 from invoke import task
 
-from dstack_python.base import do, env
-from dstack_python.utils import dirify
-from dstack_python.wrap import filer, s3cmd, compose, docker
+from dstack_tasks.base import do, env
+from dstack_tasks.utils import dirify
+from dstack_tasks.wrap import filer, s3cmd, compose, docker
 
 colorama.init()
 
@@ -179,11 +179,11 @@ def release_runtime(ctx, build_wheels=True, build_image=True, tag=None):
     """
 
     Args:
-        ctx: 
-        build_wheels: 
-        build_image: 
-        tag: 
-    
+        ctx:
+        build_wheels:
+        build_image:
+        tag:
+
     """
     # TODO: Indicate that this task must be run with a host configured
     # TODO: Make wheel-factory configurable

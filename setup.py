@@ -104,6 +104,7 @@ setup(
         'awscli',
         'boto3',
         'invoke',
+        'setuptools_scm',
         'fabric>=2.0.0',
         'python-dotenv>=0.5.1',
         'requests',
@@ -116,7 +117,6 @@ setup(
     extras_require={
         'dev': [
             'twine'
-            'setuptools_scm',
             'invoke>=0.13.0',
             'Sphinx>=1.4.1',
             'wheel>=0.29.0',
