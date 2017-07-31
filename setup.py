@@ -18,7 +18,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 chdir(path.normpath(path.join(path.abspath(__file__), pardir)))
 
 setup(
-    name='dstack-python',
+    name='dstack-tasks',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
@@ -30,13 +30,13 @@ setup(
     # version='1.0.6',
 
     description=(
-        "CLI that accompanies dstack-factory for building and publishing "
-        "docker images for python packages."),
+        "CLI that accompanies dstack-tasks make it easy to build and deploy application. "
+        "Integrates with dstack-factory."),
 
     long_description=long_description,
 
     # The project's main homepage.
-    url='https://github.com/obitec/dstack-factory',
+    url='https://github.com/obitec/dstack-tasks',
 
     # Author details
     author='JR Minnaar',
@@ -58,7 +58,6 @@ setup(
 
         #  Topics
         'Topic :: Software Development :: Build Tools',
-        'Topic :: Software Development :: Code Generators',
         'Topic :: System :: Installation/Setup',
         'Topic :: System :: Software Distribution',
 
@@ -76,7 +75,7 @@ setup(
     ],
 
     # What does your project relate to?
-    keywords='docker python wheels images runtime automation',
+    keywords='docker python wheels images runtime automation deploy',
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
@@ -104,13 +103,10 @@ setup(
     install_requires=[
         'awscli',
         'boto3',
-        'docker-compose',
         'invoke',
         'fabric>=2.0.0',
         'python-dotenv>=0.5.1',
         'requests',
-        'sh',
-        'setuptools_scm',
     ],
 
     # List additional groups of dependencies here (e.g. development
@@ -119,6 +115,7 @@ setup(
     # $ pip install -e .[dev,test]
     extras_require={
         'dev': [
+            'twine'
             'setuptools_scm',
             'invoke>=0.13.0',
             'Sphinx>=1.4.1',
@@ -149,7 +146,7 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'dstack = dstack_python.main:program.run'
+            'dstack = dstack_tasks.main:program.run'
         ],
     },
 )
