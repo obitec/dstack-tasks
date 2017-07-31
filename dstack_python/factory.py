@@ -175,17 +175,20 @@ def make_wheels(ctx, use_package=None, use_recipe=None, clear_wheels=True,
 
 
 @task
-def release_runtime(ctx, build_wheels=True, build_image=True):
+def release_runtime(ctx, build_wheels=True, build_image=True, tag=None):
     """
 
-    :param ctx: 
-    :param build_wheels: 
-    :param build_image: 
-    :return: 
+    Args:
+        ctx: 
+        build_wheels: 
+        build_image: 
+        tag: 
+    
     """
     # TODO: Indicate that this task must be run with a host configured
     # TODO: Make wheel-factory configurable
     factory_host = 'gauseng.apps'
+    tag = tag or ctx.tag
 
     if build_wheels:
         # Stage 0: Clear the wheelfiles
@@ -194,7 +197,7 @@ def release_runtime(ctx, build_wheels=True, build_image=True):
         # TODO: Get from environment
         project_name = os.path.basename(os.getcwd()).replace('-', '_')
         s3cmd(ctx,
-              s3_path=f'{project_name}/dist/{project_name}-{ctx.tag}-py3-none-any.whl',
+              s3_path=f'{project_name}/dist/{project_name}-{tag}-py3-none-any.whl',
               local_path='/srv/build/wheelhouse/',
               direction='down',
               project_name=project_name)
@@ -203,10 +206,10 @@ def release_runtime(ctx, build_wheels=True, build_image=True):
         # scp build-reqs.txt gauseng.apps:/srv/build/recipes/toolset-0.18.4.txt
         # scp "toolset==0.18.4" gauseng.apps:/srv/build/recipes/requirements.txt
         # BUILD WHEELS
-        do(ctx, cmd=f'scp build-reqs.txt {factory_host}:/srv/build/recipes/{project_name}-{ctx.tag}.txt', local=True)
+        do(ctx, cmd=f'scp build-reqs.txt {factory_host}:/srv/build/recipes/{project_name}-{tag}.txt', local=True)
 
         compose(ctx, cmd='run --rm factory', path='/srv/build',
-                env={'RECIPE': f'{project_name}-{ctx.tag}', 'PY_VERSION': '3.6', 'CEXT': 'True'})
+                env={'RECIPE': f'{project_name}-{tag}', 'PY_VERSION': '3.6', 'CEXT': 'True'})
 
         # Stage 2: Upload wheel file and build from there
         # aws s3 cp s3://dstack-storage/toolset/dist/toolset-0.18.4-py3-none-any.whl /srv/build/archive/
@@ -224,9 +227,9 @@ def release_runtime(ctx, build_wheels=True, build_image=True):
         # Build docker image and install all the wheel in the directory.
         # docker build -f Dockerfile-wheel -t obitec/ngkdb:2.0.4 .
         docker_tag = f'{ctx.organisation}/{ctx.project_name}'
-        docker(ctx, cmd=f'build -f Dockerfile-wheel -t {docker_tag}:{ctx.tag} .', path='/srv/build')
+        docker(ctx, cmd=f'build -f Dockerfile-wheel -t {docker_tag}:{tag} .', path='/srv/build')
         # docker tag obitec/ngkdb:2.0.4 obitec/ngkdb:latest
-        docker(ctx, cmd=f'tag {docker_tag}:{ctx.tag} {docker_tag}:latest')
+        docker(ctx, cmd=f'tag {docker_tag}:{tag} {docker_tag}:latest')
         # docker push obitec/ngkdb:latest
-        docker(ctx, cmd=f'push {docker_tag}:{ctx.tag}')
+        docker(ctx, cmd=f'push {docker_tag}:{tag}')
         docker(ctx, cmd=f'push {docker_tag}:latest')

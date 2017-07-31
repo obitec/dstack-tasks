@@ -148,13 +148,14 @@ def release_code(ctx, project_name=None, version=None, upload=True, push=False, 
 
     # aws s3 sync ./.local/static/ s3://dstack-storage/toolset/static/v1/
     if static:
-        ignore = ['test', 'docs', '*.md', '*.txt', '*.sass', '*.less', 'ckeditor', '*.html', 'LICENSE', '*.coffee']
+        ignore = ['test', 'docs', '*.md', '*.txt', '*.sass', '*.less', '*.html', 'LICENSE', '*.coffee']
         ignore_params = ' -i '.join(ignore)
 
         python(ctx, cmd=f'./src/manage.py collectstatic -v0 -i {ignore_params}', conda_env=True)
         # --exact-timestamps
         # s3cmd(ctx, cmd='sync', local_path='./.local/static/', s3_path=f'static/v0.18.10/', exact_timestamps=True)
-        s3cmd(ctx, cmd='sync', local_path='./.local/static/', s3_path=f'{project_name}/static/v{ctx.tag}/', exact_timestamps=True)
+        # TODO: Once webpack has been integrated, use version tag instead of `latest`
+        s3cmd(ctx, cmd='sync', local_path='./.local/static/', s3_path=f'{project_name}/static/latest/', exact_timestamps=True)
 
 
 
