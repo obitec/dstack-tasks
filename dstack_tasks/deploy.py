@@ -502,7 +502,7 @@ def release_data(version: str, live: bool = None) -> None:
 
     # TODO: Implement S3(?) database/fixture/view storage
     # TODO: Implement cloud storage for media + static files
-    print('Not implemented! ')
+    # print('Not implemented! ')
     # raise NotImplementedError
 
 

@@ -121,7 +121,7 @@ def e(collection: str = None, tag: str = None, live: bool = False) -> None:
     })
 
     if not env.image_name:
-        env.image_name = env.organisation + '/' + env.dir
+        env.image_name = env.organisation + '/' + (env.dir if not env.project_name else env.project_name)
 
     # Guess the virtual env
     env.venv_name = env.venv_name or env.project_name if env.venv_type == 'conda' else 'venv'

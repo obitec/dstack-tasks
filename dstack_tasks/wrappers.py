@@ -125,8 +125,8 @@ def compose(cmd: str = '--help', instance: str = None, path: str = None, live: b
 
     base_cmd = '{env_vars}docker-compose {cmd}'
     template = {
-        'posix': 'export UID; IMAGE={image_name}:{tag} ',
-        'nt': 'set PWD=%cd%&& set IMAGE={image_name}:{tag} && ',
+        'posix': 'export UID; ',
+        'nt': 'set PWD=%cd%&& ',
     }
 
     cmd_string = base_cmd.format(
@@ -489,3 +489,4 @@ def dry(dry_run: bool = True) -> None:
             host = env.host_string
             print(green('(dry) '),  yellow('[localhost] '),
                   'scp {local_path} {host}:{remote_path}'.format(**locals()), sep='')
+
