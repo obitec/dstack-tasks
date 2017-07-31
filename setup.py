@@ -40,10 +40,10 @@ setup(
 
     # Author details
     author='JR Minnaar',
-    author_email='jr.minnaar+dstack@gmail.com',
+    author_email='jr.minnaar+pypi@gmail.com',
 
     # Choose your license
-    license='MIT License',
+    license='BSD License',
 
     # See https://pypi.python.org/pypi?:action=list_classifiers
     classifiers=[
