@@ -23,10 +23,7 @@ your invoke and fabric2* tasks.
 Installation
 ------------
 
-..code-block::
-
     pip install --pre dstack-tasks
-
 
 Once installed, you can use it from within your project directory. The console script uses a `.env`
 file to configure itself. At the moment, some tasks still require environmental variables before it can be used.
@@ -36,21 +33,17 @@ Example usage
 -------------
 
 To see list of tasks, use `dstack --list`. To see the help text of each task, use `dstack <task name> --help`. See below
-for example usage:
+for example usage::
 
-..code-block::
     # Backs-up database
     dstack postgres backup --tag local-dev
 
     # Release new version of app and publish to S3 (requires `~/.aws/credentials` to be set up
     dstack release_code --upload --not-static
 
-dstack-tasks can also be used as a base library for your `invoke` and `fabric2` tasks:
-
-..code-block::
+dstack-tasks can also be used as a base library for your `invoke` and `fabric2` tasks::
 
     pip install https://github.com/fabric/fabric/archive/v2.zip
-
 
 
 All tasks can be run in "dry" mode or in a specific environment. To see what a tasks will execute, run it in `dry`
