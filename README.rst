@@ -64,3 +64,23 @@ from a `.env` file::
     `dstack e release_code`
 
 This can be used to for example specify a different Github repo etc.
+
+
+Notes
+-----
+
+It is important to note that dstack-tasks is console script build on top of invoke and is thus primarily meant for
+executing tasks locally. However, dstack-tasks fully supports being used as a library in your fabric (version 2)
+fabfile.py. Simply import all tasks from `dstack_tasks` in your fabfile and you can execute them on a remote server
+using something like `fab -H example.com e deploy --version 1.0.0`.
+
+At it's core however, invoke just wraps bash commands and executes them on the server. This means that for advanced uses
+it might be worthwhile to install dstack-tasks on the server to allow complex tasks to be written in python instead of
+bash. So, instead of running `ls -al` via fabric 2 on the remote server and trying to capture and parse the output, you
+can use an appropriate python package to get a list of files in a directory.
+
+Known Issues
+------------
+
+dstack-tasks does not yet include a generic task that can be used to call itself on the server. There is also currently
+an issue with setting runtime environmental variables using Fabric2 to run tasks remotely.
