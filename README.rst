@@ -25,7 +25,6 @@ Installation
 
 ..code-block::
 
-    pip install https://github.com/fabric/fabric/archive/v2.zip
     pip install --pre dstack-tasks
 
 
@@ -36,7 +35,7 @@ file to configure itself. At the moment, some tasks still require environmental 
 Example usage
 -------------
 
-To see list of tasks, use `dstack --list`. To see the help text of each task, use `dstack <taskname> --help`. See below
+To see list of tasks, use `dstack --list`. To see the help text of each task, use `dstack <task name> --help`. See below
 for example usage:
 
 ..code-block::
@@ -45,3 +44,10 @@ for example usage:
 
     # Release new version of app and publish to S3 (requires `~/.aws/credentials` to be set up
     dstack release_code --upload --not-static
+
+dstack-tasks can also be used as a base library for your `invoke` and `fabric2` tasks:
+
+..code-block::
+
+    pip install https://github.com/fabric/fabric/archive/v2.zip
+

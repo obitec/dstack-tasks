@@ -4,9 +4,9 @@ import os
 import colorama
 from invoke import task
 
-from dstack_tasks.base import do, env
-from dstack_tasks.utils import dirify
-from dstack_tasks.wrap import compose, docker, filer, s3cmd
+from .base import do, env
+from .utils import dirify
+from .wrap import compose, docker, filer, s3cmd
 
 colorama.init()
 

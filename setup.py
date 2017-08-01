@@ -105,7 +105,7 @@ setup(
         'boto3',
         'invoke',
         'setuptools_scm',
-        'fabric>=2.0.0',
+        # 'fabric>=2.0.0',
         'python-dotenv>=0.5.1',
         'requests',
         'colorama',
