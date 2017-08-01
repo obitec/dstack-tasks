@@ -51,3 +51,16 @@ dstack-tasks can also be used as a base library for your `invoke` and `fabric2` 
 
     pip install https://github.com/fabric/fabric/archive/v2.zip
 
+
+
+All tasks can be run in "dry" mode or in a specific environment. To see what a tasks will execute, run it in `dry`
+mode::
+
+    `dstack dry postgres backup`
+
+To give your task additional context, you can use the special `e` task to load environmental variables
+from a `.env` file::
+
+    `dstack e release_code`
+
+This can be used to for example specify a different Github repo etc.
