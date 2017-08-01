@@ -23,6 +23,8 @@ your invoke and fabric2* tasks.
 Installation
 ------------
 
+To install, use pip::
+
     pip install --pre dstack-tasks
 
 Once installed, you can use it from within your project directory. The console script uses a `.env`
