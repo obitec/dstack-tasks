@@ -1,8 +1,6 @@
 dstack-tasks
 ------------
 
-Tasks for deploying code to server.
-
 dstack-tasks is a collection of invoke tasks that wrap common tools and services to make it easier to deploy code.
 
 Tools wrapped::
@@ -19,7 +17,6 @@ Tools wrapped::
 The tasks are designed to run as a standalone console script (dstack) or as a collection of tasks to build on in
 your invoke and fabric2* tasks.
 
-
 Installation
 ------------
 
@@ -27,9 +24,9 @@ To install, use pip::
 
     pip install --pre dstack-tasks
 
+
 Once installed, you can use it from within your project directory. The console script uses a `.env`
 file to configure itself. At the moment, some tasks still require environmental variables before it can be used.
-
 
 Example usage
 -------------
@@ -40,13 +37,12 @@ for example usage::
     # Backs-up database
     dstack postgres backup --tag local-dev
 
-    # Release new version of app and publish to S3 (requires `~/.aws/credentials` to be set up
+    # Release new version of app and publish to S3 (requires ~/.aws/credentials to be set up
     dstack release_code --upload --not-static
 
 dstack-tasks can also be used as a base library for your `invoke` and `fabric2` tasks::
 
     pip install https://github.com/fabric/fabric/archive/v2.zip
-
 
 All tasks can be run in "dry" mode or in a specific environment. To see what a tasks will execute, run it in `dry`
 mode::
@@ -59,7 +55,6 @@ from a `.env` file::
     dstack e release_code
 
 This can be used to for example specify a different Github repo etc.
-
 
 Notes
 -----
