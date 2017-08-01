@@ -108,6 +108,7 @@ setup(
         'fabric>=2.0.0',
         'python-dotenv>=0.5.1',
         'requests',
+        'colorama',
     ],
 
     # List additional groups of dependencies here (e.g. development

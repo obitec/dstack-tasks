@@ -108,7 +108,8 @@ def s3cmd(ctx, cmd='cp', simple_path=None, direction='up', local_path=None, s3_p
         bucket: Default s3cmd://dstack-storage.
         local_path: Local relative path
         s3_path: Path on s3 bucket.
-        project_name:
+        project_name: Over ride the default project name derived from directory name or .env file
+        exact_timestamps: Useful for when syncing static files like CSS
         **kwargs:
 
     Returns:
@@ -240,5 +241,3 @@ def filer(content, key, bucket_name='dstack-storage', dry_run=False):
     else:
         content = content[:10] + '...'
         f'[local] aws s3 cp "{content}" s3://{bucket_name}/{key}'
-
-

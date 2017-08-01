@@ -6,7 +6,7 @@ from invoke import task
 
 from dstack_tasks.base import do, env
 from dstack_tasks.utils import dirify
-from dstack_tasks.wrap import filer, s3cmd, compose, docker
+from dstack_tasks.wrap import compose, docker, filer, s3cmd
 
 colorama.init()
 

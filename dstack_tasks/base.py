@@ -1,15 +1,13 @@
+import logging
 import os
 import posixpath
 from distutils.util import strtobool
 
-import logging
 from dotenv import load_dotenv
 from invoke import Config
 from invoke import task
 from invoke.env import Environment
-from invoke.util import cd
 from setuptools_scm import get_version
-
 
 conf = Config()
 env = Environment(config=conf, prefix='')
@@ -22,7 +20,6 @@ env.src = os.path.join(env.pwd, 'src')
 env.directory = os.path.basename(env.pwd)
 env.remote = False
 env.dry_run = False
-
 
 # Attempt to get a version number
 try:
@@ -180,7 +177,7 @@ def do(ctx, cmd, dry_run=None, local=False, **kwargs):
         cmd: The command to execute, e.g. 'ls'
         dry_run: Override the the env.dry_run variable.
         local: Whether to run locally or not.
-        **kwargs: path, host, 
+        **kwargs: path, host,
 
     Returns:
 
@@ -222,7 +219,6 @@ def do(ctx, cmd, dry_run=None, local=False, **kwargs):
                 return ctx.local(f'cd {path} && {cmd}', env=run_env, **kwargs)
             else:
                 return ctx.run(f'cd {path} && {cmd}', env=run_env, **kwargs)
-
 
 
 @task
