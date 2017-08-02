@@ -103,7 +103,7 @@ setup(
     install_requires=[
         'awscli',
         'boto3',
-        'invoke',
+        'invoke<=0.18.1,>=0.15',
         'setuptools_scm',
         # 'fabric>=2.0.0',
         'python-dotenv>=0.5.1',
