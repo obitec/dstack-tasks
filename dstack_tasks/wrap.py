@@ -167,28 +167,39 @@ def mysql(ctx, cmd, project='toolset', service='mysql', tag='latest'):
 
 
 @task
-def postgres(ctx, cmd, project=None, tag='latest'):
+def postgres(ctx, cmd, project=None, database=None, tag='latest'):
     """
 
     Args:
-        ctx:
-        cmd:
-        tag:
-        project:
+        ctx: The task context
+        cmd: `backup` or `restore`
+        tag: What to call the backup. By default it uses the current timestamp.
+        project: Use this to override if the project path is different that the project name.
+        database: Use this parameter if the database has a different name than the project.
 
     Returns:
+        None
 
     """
+    host = getattr(ctx, 'host', False)
+
     if project is None:
         # import pdb; pdb.set_trace()
         project = ctx['project_name']
 
-    project_path = f'/srv/apps/{project}'
+    if database is None:
+        database = project
+
+    if host:
+        project_path = f'/srv/apps/{project}'
+    else:
+        project_path = env.pwd
 
     compose(ctx, cmd='stop postgres', path=project_path)
 
-    backup_dir = f'{env.pwd}/.local/backups'
-    data_volume = f'{project}_dbdata'
+    backup_dir = f'{project_path}/.local/backups'
+
+    data_volume = f'{database}_dbdata'
     backup_name = f'db_backup.{tag}.tar.gz'
     fix = '&& chmod -R 700 /data'
     template = '--help'
