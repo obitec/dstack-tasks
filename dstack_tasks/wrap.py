@@ -183,7 +183,9 @@ def postgres(ctx, cmd, project=None, tag='latest'):
         # import pdb; pdb.set_trace()
         project = ctx['project_name']
 
-    compose(ctx, cmd='stop postgres')
+    project_path = f'/srv/apps/{project}'
+
+    compose(ctx, cmd='stop postgres', path=project_path)
 
     backup_dir = f'{env.pwd}/.local/backups'
     data_volume = f'{project}_dbdata'
@@ -213,7 +215,7 @@ def postgres(ctx, cmd, project=None, tag='latest'):
 
     docker(ctx, cmd=template)
 
-    compose(ctx, cmd='start postgres')
+    compose(ctx, cmd='start postgres', path=project_path)
 
 
 @task
