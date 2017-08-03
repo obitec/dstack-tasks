@@ -3,6 +3,7 @@ import os
 import posixpath
 from distutils.util import strtobool
 
+import colorama
 from dotenv import load_dotenv
 from invoke import Config
 from invoke import task
@@ -169,7 +170,7 @@ def dry(ctx):
 
 # noinspection PyUnusedLocal
 # @task
-def do(ctx, cmd, dry_run=None, local=False, **kwargs):
+def do(ctx, cmd, dry_run=None, local=False, host=None, **kwargs):
     """Base `run` task with support for dry run changing paths and setting environmental variables.
 
     Args:
@@ -177,11 +178,14 @@ def do(ctx, cmd, dry_run=None, local=False, **kwargs):
         cmd: The command to execute, e.g. 'ls'
         dry_run: Override the the env.dry_run variable.
         local: Whether to run locally or not.
+        host:
         **kwargs: path, host,
 
     Returns:
 
     """
+    # TODO: Optionally load fabric Connection if host is defined
+
     # import pdb; pdb.set_trace()
     run_env = kwargs.pop('env', {})
     path = kwargs.pop('path', None)
@@ -206,19 +210,26 @@ def do(ctx, cmd, dry_run=None, local=False, **kwargs):
             cmd_str.append(f'cd {path}')
         cmd_str.append(cmd)
 
-        print('local:' if not host or local else 'remote:', ' && '.join(cmd_str))
+        local_or_remote = colorama.Fore.YELLOW + '[local]' if not host or local else colorama.Fore.RED + '[remote]'
+        print(local_or_remote, colorama.Fore.RESET + ' && '.join(cmd_str))
 
     else:
         if not path:
             if local:
                 return ctx.local(cmd, env=run_env, **kwargs)
             else:
+                # TODO: env isn't passed on to fabric connection.
+                # Ways to work around this:
+                # 1. use ctx.prefix
+                # 2. Figure out cxn = Connection(..).run()
+                # 3. File bug report for env
                 return ctx.run(cmd, env=run_env, **kwargs)
         else:
-            if local:
-                return ctx.local(f'cd {path} && {cmd}', env=run_env, **kwargs)
-            else:
-                return ctx.run(f'cd {path} && {cmd}', env=run_env, **kwargs)
+            with ctx.cd(path):
+                if local:
+                    return ctx.local(cmd, env=run_env, **kwargs)
+                else:
+                    return ctx.run(cmd, env=run_env, **kwargs)
 
 
 @task

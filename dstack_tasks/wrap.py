@@ -8,6 +8,27 @@ from .base import do, env
 
 
 @task
+def bash(ctx, cmd, path=None, local=None, env_vars=None, host=None):
+    """
+
+    Args:
+        ctx:
+        cmd:
+        path:
+        local:
+        env_vars:
+        host:
+
+    Returns:
+
+    """
+    if env_vars:
+        env_vars = dict(item.split("=") for item in env_vars.split(","))
+
+    return do(ctx, cmd=cmd, path=path, local=local, env=env_vars, host=host)
+
+
+@task
 def docker(ctx, cmd='--help', **kwargs):
     """System docker wrapper.
 
@@ -69,9 +90,9 @@ def python(ctx, cmd='--help', venv=True, conda_env=False, **kwargs):
     # TODO: Auto-detect venv type? Or at least better switching
 
     if conda_env:
-        python_path = f'/Users/canary/miniconda3/envs/{ctx.venv_name}/bin/python'
+        python_path = f'{ctx.activate} && python'
     elif venv:
-        python_path = f'{ctx.activate} && '
+        python_path = f'{ctx.activate} && python'
     else:
         python_path = 'python'
 
