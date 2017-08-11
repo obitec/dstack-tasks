@@ -51,7 +51,7 @@ def deploy(ctx, project_name=None, version='0.0.0', service='django',
         # dotenv -f .env -q auto set VERSION version
         set_key(dotenv_path='.env', key_to_set='VERSION', value_to_set=version, quote_mode='auto')
         # dotenv -f .local/webapp.env -q auto set VERSION version
-        set_key(dotenv_path='./stack/{base_service}/.env',
+        set_key(dotenv_path=f'./stack/{base_service}/.env',
                 key_to_set='RELEASE_TAG', value_to_set=version, quote_mode='auto')
     else:
         print(f'dotenv -f .env -q auto set VERSION {version}')
