@@ -165,9 +165,38 @@ def s3cmd(ctx, cmd='cp', simple_path=None, direction='up', local_path=None, s3_p
 
 
 @task
-def mysql(ctx, cmd, project='toolset', service='mysql', tag='latest'):
+def mysql(ctx, cmd, project='toolset', service='mysql', tag='latest', database='superset'):
+    """
+
+    Args:
+        ctx:
+        cmd:
+        project:
+        service:
+        tag:
+        database:
+
+    Returns:
+
+    """
+    host = getattr(ctx, 'host', False)
+
+    if project is None:
+        # import pdb; pdb.set_trace()
+        project = ctx['project_name']
+
+    if database is None:
+        database = project
+
+    if host:
+        project_path = f'/srv/apps/{project}'
+    else:
+        project_path = env.pwd
+
+    backup_path = f'{project_path}/.local/backups'
+
     file_name = f'dump_{tag}.sql'
-    backup_path = f'/srv/apps/{project}/backups'
+
     container = f'{project}_{service}_1'
 
     backup_cmd = ' '.join([
@@ -176,7 +205,7 @@ def mysql(ctx, cmd, project='toolset', service='mysql', tag='latest'):
         '--result-file=/opt/backup.sql'])
 
     backup_file = os.path.join(backup_path, file_name)
-    restore_cmd = f'mysql -usuperset -psuperset superset < {backup_file}'
+    restore_cmd = f'mysql -usuperset -psuperset {database} < {backup_file}'
 
     if cmd == 'backup':
         docker(ctx, cmd=f'exec {container} bash -c "{backup_cmd}"')
