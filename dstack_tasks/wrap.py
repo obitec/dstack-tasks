@@ -55,6 +55,8 @@ def compose(ctx, cmd='--help', **kwargs):
     Returns:
 
     """
+    if kwargs.get('path', None) is None:
+        kwargs['path'] = ctx['dir']
     return do(ctx, f'docker-compose {cmd}', **kwargs)
 
 
@@ -116,7 +118,7 @@ def pip(ctx, cmd='list', venv=True, **kwargs):
 
 
 @task
-def s3cmd(ctx, cmd='cp', simple_path=None, direction='up', local_path=None, s3_path=None, bucket='s3://dstack-storage',
+def s3cmd(ctx, cmd='cp', simple_path=None, direction='up', local_path=None, s3_path=None, bucket='dstack-storage',
           project_name=None, exact_timestamps=False, **kwargs):
     """Wrapper for copying files to and from s3 bucket.
 
@@ -139,20 +141,22 @@ def s3cmd(ctx, cmd='cp', simple_path=None, direction='up', local_path=None, s3_p
         AttributeError: When neither simple_path nor s3_path and local_path are specified.
 
     """
+    # TODO: Read bucket from .env
+
     if not project_name:
         project_name = 'temp'
 
     if simple_path is not None:
         if s3_path is None:
-            s3_uri = f'{bucket}/{project_name}/{simple_path}'
+            s3_uri = f's3://{bucket}/{project_name}/{simple_path}'
         else:
-            s3_uri = f'{bucket}/{s3_path}'
+            s3_uri = f's3://{bucket}/{s3_path}'
 
         if local_path is None:
             local_path = simple_path
 
     elif s3_path and local_path:
-        s3_uri = f'{bucket}/{s3_path}'
+        s3_uri = f's3://{bucket}/{s3_path}'
         local_path = local_path
 
     else:

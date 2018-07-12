@@ -132,17 +132,17 @@ def e(ctx, collection=None, tag=None, live=False):
     # Setup specific to remote server
     # Configure paths
     path_config = {
-        'apps': '/srv/apps',
+        'apps': '/home/canary/',
         'volumes': {
             'postgres_data': '/var/lib/postgresql/data',
         }
     }
 
-    project_dir = posixpath.join(path_config['apps'], ctx.project_name)
+    project_path = posixpath.join(path_config['apps'], ctx.project_name)
 
     remote = dict(
-        project_dir=project_dir,
-        server_dotenv_path=posixpath.join(project_dir, '.env'),
+        project_path=project_path,
+        server_dotenv_path=posixpath.join(project_path, '.env'),
         postgres_data=path_config['volumes']['postgres_data'],
         virtual_host=os.getenv('VIRTUAL_HOST', ctx.project_name),
     )
@@ -152,6 +152,12 @@ def e(ctx, collection=None, tag=None, live=False):
 
     # Try to get the host_name
     env.hosts = [os.getenv('HOST_NAME', None), ]
+
+    host = getattr(ctx, 'host', False)
+    if host:
+        ctx['dir'] = ctx['remote']['project_path']
+    else:
+        ctx['dir'] = env.pwd
 
 
 # noinspection PyUnusedLocal
