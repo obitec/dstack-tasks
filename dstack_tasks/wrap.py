@@ -181,9 +181,9 @@ def s3cmd(ctx, cmd='cp', simple_path=None, direction='up', local_path=None, s3_p
         raise AttributeError('Must specify either simple path or both s3_path and local_path')
 
     # params = ' --exact-timestamps' if kwargs.get('exact_timestamps', False) else ''
-    params = ' --exact-timestamps' if exact_timestamps else ''
+    params = ' --exact-timestamps --quiet ' if exact_timestamps else ' --quiet '
     template = f'{local_path} {s3_uri}' if direction == 'up' else f'{s3_uri} {local_path}'
-    return do(ctx, cmd=f'aws s3 {cmd}{params} {template}', **kwargs)
+    return do(ctx, cmd=f'aws s3 {cmd}{params}{template}', **kwargs)
 
 
 # DEPRECATED
@@ -251,4 +251,4 @@ def filer(content, key, bucket_name='dstack-storage', dry_run=False):
         file_object.put(Body=content.encode('utf-8'))
     else:
         content = content[:10] + '...'
-        f'[local] aws s3 cp "{content}" s3://{bucket_name}/{key}'
+        f'[local] aws s3 cp --quiet "{content}" s3://{bucket_name}/{key}'

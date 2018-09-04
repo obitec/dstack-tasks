@@ -27,7 +27,7 @@ setup(
     #      'write_to': 'version.txt',
     # },
     # version=version_string,
-    version='2.3.0',
+    version='2.3.1',
 
     description=(
         "CLI that accompanies dstack-tasks make it easy to build and deploy application. "
@@ -104,11 +104,12 @@ setup(
     install_requires=[
         'awscli',
         'boto3',
-        'invoke',
+        'colorama',
         'fabric>=2.0.0',
+        'invoke',
         'python-dotenv',
         'requests',
-        'colorama',
+        'setuptools_scm',
     ],
 
     # List additional groups of dependencies here (e.g. development

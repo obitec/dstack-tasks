@@ -67,20 +67,23 @@ def deploy_code(ctx, version, download=True, build=True, static=False, migrate=F
     local_path = '.local/'
 
     if getattr(ctx, 'host', False):
-        stack_path = os.path.join(ctx.dir, stack_path)
-        local_path = os.path.join(ctx.dir, local_path)
-
-    do(ctx, f'aws s3 cp s3://{bucket}/{project}/dist/{project}-{version}-py3-none-any.whl {stack_path}')
-    if static:
-        if download:
-            do(ctx, f'aws s3 cp s3://{bucket}/{project}/static/static_v{version}.tar.gz {local_path}')
-        do(ctx, f'tar -zvxf static_v{version}.tar.gz -C static/', path=local_path)
+        stack_path = os.path.abspath(os.path.join(ctx.dir, stack_path))
+        local_path = os.path.abspath(os.path.join(ctx.dir, local_path))
 
     # Update the env files
     do(ctx, f'sed -i.bak "s/^VERSION=.*/VERSION={version}/g" {os.path.join(ctx.dir, ".env")}')
     do(ctx, f'sed -i.bak "s/^VERSION=.*/VERSION={version}/g" {os.path.join(stack_path, ".env")}')
 
+    do(ctx, f'aws s3 cp --quiet s3://{bucket}/{project}/dist/{project}-{version}-py3-none-any.whl {stack_path}')
+    if static:
+        if download:
+            do(ctx, f'aws s3 cp --quiet s3://{bucket}/{project}/static/static_v{version}.tar.gz {local_path}')
+        do(ctx, f'tar -zvxf static_v{version}.tar.gz -C static/', path=local_path)
+        do(ctx, f'find {local_path}static/ -type d -exec chmod 755 {{}} \\;')
+        do(ctx, f'find {local_path}static/ -type f -exec chmod 644 {{}} \\;')
+
     if build:
+        del os.environ['VERSION']
         compose(ctx, cmd='build django')
         compose(ctx, cmd='up -d django')
         compose(ctx, cmd='up -d celery_worker celery_camera')
@@ -115,7 +118,7 @@ def release_superset(ctx, version):
     do(ctx, 'yarn run build', path='superset/assets/')
     do(ctx, 'rm -rf build/*')
     do(ctx, 'python setup.py bdist_wheel')
-    do(ctx, f'aws s3 cp dist/superset-{version}-py3-none-any.whl s3://{bucket_name}/superset/dist/')
+    do(ctx, f'aws s3 cp --quiet dist/superset-{version}-py3-none-any.whl s3://{bucket_name}/superset/dist/')
     do(ctx, f'cp ./dist/superset-{version}-py3-none-any.whl {project_root}/tests/stack/superset/')
 
     # TODO: wrap set_key in function
@@ -195,9 +198,9 @@ def db(ctx, cmd, tag=None, upload=True, notify=False, replica=True, project=None
             compose(ctx, f'rm -vsf {service_standby}')
             docker(ctx, f'volume rm {project}_{volume_standby}', warn=True)
         # Restore database
-        compose(ctx, f'stop {service_main}')
+        compose(ctx, f'-p {project} stop {service_main}')
         docker(ctx, f'run --rm -v {project}_{volume_main}:/data -v {backup_path}:/backup {image} {restore_cmd}')
-        compose(ctx, f'start {service_main}')
+        compose(ctx, f'-p {project} start {service_main}')
         # compose(ctx, f'exec -T {service_main} {promote_cmd}')
         if replica:
             compose(ctx, f'exec -T {service_main} touch /tmp/pg_failover_trigger')
