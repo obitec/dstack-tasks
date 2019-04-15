@@ -27,7 +27,7 @@ setup(
     #      'write_to': 'version.txt',
     # },
     # version=version_string,
-    version='2.3.1',
+    version='2.3.2',
 
     description=(
         "CLI that accompanies dstack-tasks make it easy to build and deploy application. "

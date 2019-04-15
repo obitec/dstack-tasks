@@ -122,7 +122,7 @@ def e(ctx, collection=None, tag=None, live=False):
     # template for activating the python virtual environment
     activate = {
         'conda': {
-            'posix': 'source activate {venv}',  # $ source activate <venv>
+            'posix': 'conda activate {venv}',  # $ source activate <venv>
             'nt': 'activate {venv}'  # C:\> activate <venv>
         },
         'pip': {

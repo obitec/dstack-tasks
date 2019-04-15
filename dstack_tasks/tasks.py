@@ -139,7 +139,7 @@ def now_tag(tag=None):
 
 
 @task
-def db(ctx, cmd, tag=None, upload=True, notify=False, replica=True, project=None, image='postgres:9.5',
+def db(ctx, cmd, tag=None, sync=True, notify=False, replica=True, project=None, image='postgres:9.5',
        service_main='postgres', volume_main='postgres',
        service_standby='postgres-replica', volume_standby='dbdata', data_dir=None):
     """
@@ -148,7 +148,7 @@ def db(ctx, cmd, tag=None, upload=True, notify=False, replica=True, project=None
         ctx:
         cmd:
         tag:
-        upload: Default=True. Whether to upload to s3 or not
+        sync: Default=True. Whether to upload/download to/from s3 or not
         notify: Default=True. Whether to post machine_status
         replica: Whether to use simple backup/restore or backup/restore with replica
         project:
@@ -180,7 +180,7 @@ def db(ctx, cmd, tag=None, upload=True, notify=False, replica=True, project=None
         compose(ctx, f'stop {service}')
         docker(ctx, f'run --rm -v {project}_{volume}:/data -v {backup_path}:/backup {image} {backup_cmd}')
         compose(ctx, f'start {service}')
-        if upload:
+        if sync:
             s3cmd(ctx, local_path=os.path.join(backup_path, f'db_backup.{tag}.tar.gz'), s3_path=f'{project}/backups/')
         if replica:
             result = psql(ctx, sql=f"SELECT * from backup_log WHERE tag='{tag}'", service=service)
@@ -189,8 +189,21 @@ def db(ctx, cmd, tag=None, upload=True, notify=False, replica=True, project=None
         if notify:
             message = f'Backup with tag={tag} uploaded to S3. Please verify.'
             send_alert(ctx, message)
+        # if verify:
+        #     backup=toolset/backups/db_backup....tar.gz
+        #     md5check=$(aws s3api copy-object
+        #         --copy-source dstack-storage/$backup
+        #         --bucket dstack-storage
+        #         --key $backup
+        #         --metadata checked=True
+        #         --metadata-directive REPLACE | jq .CopyObjectResult.ETag | tr -cd '[[:alnum:]]')
+        #     md5sum .local/db_backup...tar.gz
 
     elif cmd == 'restore':
+        if sync:
+            s3cmd(ctx, direction='down',
+                  s3_path=f'{project}/backups/db_backup.{tag}.tar.gz',
+                  local_path=f'{backup_path}/')
         restore_cmd = f'bash -c "tar xpf /backup/db_backup.{tag}.tar.gz && chmod -R 700 /data"'
         # TODO: First restart django with updated POSTGRES_HOST=standby and then only destroy afterwards
         if replica:
@@ -202,8 +215,8 @@ def db(ctx, cmd, tag=None, upload=True, notify=False, replica=True, project=None
         docker(ctx, f'run --rm -v {project}_{volume_main}:/data -v {backup_path}:/backup {image} {restore_cmd}')
         compose(ctx, f'-p {project} start {service_main}')
         # compose(ctx, f'exec -T {service_main} {promote_cmd}')
+        compose(ctx, f'exec -T {service_main} touch /tmp/pg_failover_trigger')
         if replica:
-            compose(ctx, f'exec -T {service_main} touch /tmp/pg_failover_trigger')
             # Recreate standby database
             compose(ctx, f'up -d {service_standby}')
     elif cmd == 'recreate-standby':
@@ -247,3 +260,23 @@ def create_backup_table(ctx):
                 tag VARCHAR(255))"""
     psql(ctx, sql=" ".join(sql.split()))
     psql(ctx, sql="INSERT INTO backup_log (tag) VALUES ('initialized');")
+
+
+@task
+def install_superset(ctx):
+    # CREATE DATABASE superset;
+    # CREATE USER superset WITH PASSWORD 'superset';
+    # GRANT ALL PRIVILEGES ON DATABASE superset TO superset;
+    # TODO: Make database name and password env variables
+    psql(ctx, 'CREATE DATABASE superset')
+    psql(ctx, "CREATE USER superset WITH PASSWORD 'superset'")
+    psql(ctx, 'GRANT ALL PRIVILEGES ON DATABASE superset TO superset')
+    compose(ctx, 'exec superset fabmanager create-admin --app superset')
+    compose(ctx, 'exec superset superset db upgrade')
+    compose(ctx, 'exec superset superset init')
+
+# @task
+# def secure_copy():
+    # aws s3 cp --sse=AES256 s3://dstack-storage/tfc ./
+    # gpg -d tfc | tar -zxf -
+    # rm -rf tfc
