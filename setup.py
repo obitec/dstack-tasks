@@ -27,7 +27,7 @@ setup(
     #      'write_to': 'version.txt',
     # },
     # version=version_string,
-    version='2.3.2',
+    version='2.3.3',
 
     description=(
         "CLI that accompanies dstack-tasks make it easy to build and deploy application. "
@@ -40,7 +40,7 @@ setup(
 
     # Author details
     author='JR Minnaar',
-    author_email='jr.minnaar+pypi@gmail.com',
+    author_email='jrminnaar+pypi@gmail.com',
 
     # Choose your license
     license='MIT License',

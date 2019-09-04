@@ -49,11 +49,14 @@ def release_code(ctx, project_name=None, version=None, upload=True, push=False, 
 
     if static:
         excludes = '--exclude=' + ' --exclude='.join(['"*.less"', '"*.md"', '"ckeditor/"'])
-        do(ctx, f'webpack', path='src/assets/')
+        try:
+            do(ctx, f'webpack', path='src/assets/')
+        except Exception:
+            pass
         python(ctx, f'./src/manage.py collectstatic --no-input -v0', conda_env=True)
         # do(ctx, f'rm -rf .local/static/ckeditor/')
+        do(ctx, f'tar -zcvf .local/static_v{version}.tar.gz {excludes} -C .local/static/ .')
         if upload:
-            do(ctx, f'tar -zcvf .local/static_v{version}.tar.gz {excludes} -C .local/static/ .')
             s3cmd(ctx, local_path=f'.local/static_v{version}.tar.gz', s3_path=f'{project_name}/static/')
 
 
@@ -215,7 +218,7 @@ def db(ctx, cmd, tag=None, sync=True, notify=False, replica=True, project=None, 
         docker(ctx, f'run --rm -v {project}_{volume_main}:/data -v {backup_path}:/backup {image} {restore_cmd}')
         compose(ctx, f'-p {project} start {service_main}')
         # compose(ctx, f'exec -T {service_main} {promote_cmd}')
-        compose(ctx, f'exec -T {service_main} touch /tmp/pg_failover_trigger')
+        compose(ctx, f'-p {project} exec -T {service_main} touch /tmp/pg_failover_trigger')
         if replica:
             # Recreate standby database
             compose(ctx, f'up -d {service_standby}')
