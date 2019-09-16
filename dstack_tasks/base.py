@@ -106,6 +106,7 @@ def e(ctx, collection=None, tag=None, live=False):
         'venv_name': os.getenv('VENV_NAME', ''),
         'venv_type': os.getenv('VENV_TYPE', 'conda'),
         'image_name': os.getenv('IMAGE_NAME', ''),
+        's3_project_prefix': os.getenv('S3_PROJECT_PREFIX', os.getenv('PROJECT_NAME', env.directory)),
 
         'node_modules_prefix': os.getenv('NODE_PREFIX', '.local'),
     })

@@ -184,7 +184,8 @@ def db(ctx, cmd, tag=None, sync=True, notify=False, replica=True, project=None, 
         docker(ctx, f'run --rm -v {project}_{volume}:/data -v {backup_path}:/backup {image} {backup_cmd}')
         compose(ctx, f'start {service}')
         if sync:
-            s3cmd(ctx, local_path=os.path.join(backup_path, f'db_backup.{tag}.tar.gz'), s3_path=f'{project}/backups/')
+            s3cmd(ctx, local_path=os.path.join(backup_path, f'db_backup.{tag}.tar.gz'),
+                  s3_path=f'{ctx.s3_project_prefix}/backups/')
         if replica:
             result = psql(ctx, sql=f"SELECT * from backup_log WHERE tag='{tag}'", service=service)
             if tag in getattr(result, 'stdout', ''):
@@ -205,7 +206,7 @@ def db(ctx, cmd, tag=None, sync=True, notify=False, replica=True, project=None, 
     elif cmd == 'restore':
         if sync:
             s3cmd(ctx, direction='down',
-                  s3_path=f'{project}/backups/db_backup.{tag}.tar.gz',
+                  s3_path=f'{ctx.s3_project_prefix}/backups/db_backup.{tag}.tar.gz',
                   local_path=f'{backup_path}/')
         restore_cmd = f'bash -c "tar xpf /backup/db_backup.{tag}.tar.gz && chmod -R 700 /data"'
         # TODO: First restart django with updated POSTGRES_HOST=standby and then only destroy afterwards
