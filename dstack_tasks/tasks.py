@@ -147,6 +147,69 @@ def now_tag(tag=None):
     return f'{time_str}_{tag}' if tag else time_str
 
 
+def db_backup_old(ctx, tag=None, sync=True, notify=False, replica=True, project=None, image='postgres:9.5',
+       service_main='postgres', volume_main='postgres',
+       service_standby='postgres-replica', volume_standby='dbdata', data_dir=None):
+
+    if data_dir is None:
+        data_dir = os.path.abspath(
+            os.path.join(os.path.dirname(os.getenv('COMPOSE_FILE')), os.getenv('LOCAL_DIR')))
+    backup_path = os.path.join(ctx['dir'], f'{data_dir}/backups')
+
+    tag = now_tag(tag)
+    backup_cmd = f'tar -zcpf /backup/db_backup.{tag}.tar.gz /data'
+    # Stop container and make backup of ${PGDATA}
+    psql(ctx, sql=f"INSERT INTO backup_log (tag) VALUES ('{tag}');")
+    service = service_standby if replica else service_main
+    volume = volume_standby if replica else volume_main
+    compose(ctx, f'stop {service}')
+    docker(ctx, f'run --rm -v {project}_{volume}:/data -v {backup_path}:/backup {image} {backup_cmd}')
+    compose(ctx, f'start {service}')
+    if sync:
+        s3cmd(ctx, local_path=os.path.join(backup_path, f'db_backup.{tag}.tar.gz'),
+              s3_path=f'{ctx.s3_project_prefix}/backups/')
+    if replica:
+        result = psql(ctx, sql=f"SELECT * from backup_log WHERE tag='{tag}'", service=service)
+        if tag in getattr(result, 'stdout', ''):
+            print('Success!')
+    if notify:
+        message = f'Backup with tag={tag} uploaded to S3. Please verify.'
+        send_alert(ctx, message)
+    # if verify:
+    #     backup=toolset/backups/db_backup....tar.gz
+    #     md5check=$(aws s3api copy-object
+    #         --copy-source dstack-storage/$backup
+    #         --bucket dstack-storage
+    #         --key $backup
+    #         --metadata checked=True
+    #         --metadata-directive REPLACE | jq .CopyObjectResult.ETag | tr -cd '[[:alnum:]]')
+    #     md5sum .local/db_backup...tar.gz
+
+
+def db_backup(ctx, tag=None, sync=True, project=None, data_dir=None, service='postgres'):
+    tag = now_tag(tag)
+    psql(ctx, sql=f"INSERT INTO backup_log (tag) VALUES ('{tag}');")
+    project = project or ctx['project_name']
+
+    host = getattr(ctx, 'host', False)
+    if host:
+        os_path = posixpath
+    else:
+        os_path = os.path
+
+    if data_dir is None:
+        data_dir = os_path.abspath(
+            os_path.join(os_path.dirname(os.getenv('COMPOSE_FILE')), os.getenv('LOCAL_DIR')))
+    backup_file = os_path.join(f'{data_dir}', 'backups', 'backup_latest.pg_dump')
+    docker(ctx, f'exec {project}_{service}_1 pg_dump -U postgres -F c -d postgres > {backup_file}')
+    if sync:
+        endpoint_url = f'--endpoint-url {os.getenv("ENDPOINT_URL")}'
+        do(ctx, f'aws {endpoint_url} s3 cp {backup_file} s3://dstack-storage/{project}/backups/backup_{tag}.pg_dump')
+    else:
+        # TODO: implement local backup copy
+        pass
+
+
 @task
 def db(ctx, cmd, tag=None, sync=True, notify=False, replica=True, project=None, image='postgres:9.5',
        service_main='postgres', volume_main='postgres',
@@ -180,35 +243,7 @@ def db(ctx, cmd, tag=None, sync=True, notify=False, replica=True, project=None, 
     backup_path = os.path.join(ctx['dir'], f'{data_dir}/backups')
     # promote_cmd = 'su - postgres -c "/usr/lib/postgresql/9.5/bin/pg_ctl promote -D /var/lib/postgresql/data"'
     if cmd == 'backup':
-        tag = now_tag(tag)
-        backup_cmd = f'tar -zcpf /backup/db_backup.{tag}.tar.gz /data'
-        # Stop container and make backup of ${PGDATA}
-        psql(ctx, sql=f"INSERT INTO backup_log (tag) VALUES ('{tag}');")
-        service = service_standby if replica else service_main
-        volume = volume_standby if replica else volume_main
-        compose(ctx, f'stop {service}')
-        docker(ctx, f'run --rm -v {project}_{volume}:/data -v {backup_path}:/backup {image} {backup_cmd}')
-        compose(ctx, f'start {service}')
-        if sync:
-            s3cmd(ctx, local_path=os.path.join(backup_path, f'db_backup.{tag}.tar.gz'),
-                  s3_path=f'{ctx.s3_project_prefix}/backups/')
-        if replica:
-            result = psql(ctx, sql=f"SELECT * from backup_log WHERE tag='{tag}'", service=service)
-            if tag in getattr(result, 'stdout', ''):
-                print('Success!')
-        if notify:
-            message = f'Backup with tag={tag} uploaded to S3. Please verify.'
-            send_alert(ctx, message)
-        # if verify:
-        #     backup=toolset/backups/db_backup....tar.gz
-        #     md5check=$(aws s3api copy-object
-        #         --copy-source dstack-storage/$backup
-        #         --bucket dstack-storage
-        #         --key $backup
-        #         --metadata checked=True
-        #         --metadata-directive REPLACE | jq .CopyObjectResult.ETag | tr -cd '[[:alnum:]]')
-        #     md5sum .local/db_backup...tar.gz
-
+        db_backup(ctx, tag=tag, sync=sync, project=project, data_dir=data_dir, service=service_main)
     elif cmd == 'restore':
         if sync:
             s3cmd(ctx, direction='down',

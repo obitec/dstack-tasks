@@ -5,7 +5,7 @@ with open('README.rst', 'r') as f:
 
 setup(
     name='dstack-tasks',
-    version='2.3.4',
+    version='2.3.5',
     description=(
         "CLI that accompanies dstack-tasks make it easy to build and deploy application. "
         "Integrates with dstack-factory."),

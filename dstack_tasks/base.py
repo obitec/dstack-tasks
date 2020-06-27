@@ -54,7 +54,7 @@ def t2(ctx):
 
 # noinspection PyUnusedLocal
 @task
-def e(ctx, collection=None, tag=None, live=False):
+def e(ctx, collection=None, tag=None, live=False, debug=False):
     """Set environment
 
     Optionally run before other task to configure environment
@@ -84,6 +84,9 @@ def e(ctx, collection=None, tag=None, live=False):
         collection: The <collection>.env file that should be loaded before a task is executed.
 
     """
+    if debug:
+        print(ctx)
+
     if not isinstance(live, bool):
         live = bool(strtobool(live))
 
