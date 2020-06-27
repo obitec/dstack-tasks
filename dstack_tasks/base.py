@@ -215,10 +215,15 @@ def do(ctx, cmd, dry_run=None, local=False, sudo=False, host=None, **kwargs):
     if dry_run is None:
         dry_run = env.dry_run
 
+    if host:
+        ospath = posixpath
+    else:
+        ospath = os.path
+
     if path:
-        path = os.path.abspath(os.path.expandvars(os.path.expanduser(path)))
+        path = ospath.abspath(ospath.expandvars(ospath.expanduser(path)))
         # Only test if running locally, Python code always execute locally, not on host.
-        if not host and not os.path.isdir(path):
+        if not host and not ospath.isdir(path):
             raise NotADirectoryError(f'{path}')
 
     if dry_run:

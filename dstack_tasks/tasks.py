@@ -1,6 +1,7 @@
 import os
 import time
 from datetime import datetime
+import posixpath
 
 from dotenv import set_key
 from invoke import task
@@ -61,7 +62,7 @@ def release_code(ctx, project_name=None, version=None, upload=True, push=False, 
 
 
 @task
-def deploy_code(ctx, version, download=True, build=True, static=False, migrate=False, project=None, bucket=None):
+def deploy_code(ctx, version, download=False, build=True, static=False, migrate=False, project=None, bucket=None):
     project = project or ctx['project_name']
     bucket = bucket or ctx['bucket_name']
 
@@ -70,14 +71,19 @@ def deploy_code(ctx, version, download=True, build=True, static=False, migrate=F
     local_path = '.local/'
 
     if getattr(ctx, 'host', False):
-        stack_path = os.path.abspath(os.path.join(ctx.dir, stack_path))
-        local_path = os.path.abspath(os.path.join(ctx.dir, local_path))
+        path = posixpath
+    else:
+        path = os.path
+
+    stack_path = path.abspath(path.join(ctx.dir, stack_path))
+    local_path = path.abspath(path.join(ctx.dir, local_path))
 
     # Update the env files
-    do(ctx, f'sed -i.bak "s/^VERSION=.*/VERSION={version}/g" {os.path.join(ctx.dir, ".env")}')
-    do(ctx, f'sed -i.bak "s/^VERSION=.*/VERSION={version}/g" {os.path.join(stack_path, ".env")}')
-
-    do(ctx, f'aws s3 cp --quiet s3://{bucket}/{project}/dist/{project}-{version}-py3-none-any.whl {stack_path}')
+    do(ctx, f'sed -i.bak "s/^VERSION=.*/VERSION={version}/g" {path.join(ctx.dir, ".env")}')
+    do(ctx, f'sed -i.bak "s/^VERSION=.*/VERSION={version}/g" {path.join(stack_path, ".env")}')
+    do(ctx, f'sed -i.bak "s/^PACKAGE_NAME=.*/PACKAGE_NAME=toolset-{version}-py3-none-any.whl/g" {path.join(stack_path, ".env")}')
+    if download:
+        do(ctx, f'aws s3 cp --quiet s3://{bucket}/{project}/dist/{project}-{version}-py3-none-any.whl {stack_path}/')
     if static:
         if download:
             do(ctx, f'aws s3 cp --quiet s3://{bucket}/{project}/static/static_v{version}.tar.gz {local_path}')
@@ -89,10 +95,10 @@ def deploy_code(ctx, version, download=True, build=True, static=False, migrate=F
         del os.environ['VERSION']
         compose(ctx, cmd='build django')
         compose(ctx, cmd='up -d django')
-        compose(ctx, cmd='up -d celery_worker celery_camera')
+        # compose(ctx, cmd='up -d celery_worker celery_camera')
 
     if migrate:
-        db(ctx, 'backup', upload=True)
+        db(ctx, 'backup', sync=True)
         compose(ctx, cmd=f'exec django {project} migrate')
 
 
