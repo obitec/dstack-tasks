@@ -1,4 +1,8 @@
-version.txt
+.idea/
+.eggs/
+build/
+dist/
+*.egg-info/
 .env
 fabfile.py
 __pycache__
